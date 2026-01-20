@@ -17,10 +17,10 @@ REM Fetch latest changes from remote
 echo Fetching from remote...
 git fetch origin 2>nul
 
-REM Check for uncommitted changes
-git diff-index --quiet HEAD -- 2>nul
-if %ERRORLEVEL% neq 0 (
-    echo Found uncommitted changes. Committing them...
+REM Check for uncommitted or untracked changes
+git status --porcelain 2>nul | findstr /r "." >nul
+if %ERRORLEVEL% equ 0 (
+    echo Found uncommitted or untracked changes. Committing them...
     git add -A
     git commit -m "Auto-commit: %date% %time%"
 )
