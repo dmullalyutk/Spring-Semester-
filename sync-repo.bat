@@ -73,3 +73,5 @@ if %BEHIND% gtr 0 if %AHEAD% gtr 0 (
 
 echo.
 echo Sync complete!
+echo.
+pause
