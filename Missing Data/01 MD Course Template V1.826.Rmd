@@ -1,0 +1,1181 @@
+---
+title: "583/483Data Cleaning and Missing Data"
+author: "Your Name Here"
+date: "Finish Date Here"
+output:
+  html_document: default
+  word_document: default
+---
+
+*** I had hoped to make this template "Perfect", matching exactly our flow in class, but there was too much uncertainty and variation. Make adjustments to template as you see fit.You can add chunks (and probably need to) Cut and paste my answers where you want/need them. I prefer you keep your own answers. **Delete this paragraph**
+
+### SETUP CHUNK: Do NOT delete the chunk. Delete this instruction.
+
+```{r setup, include=FALSE}
+
+### SETUP CHUNK: Do NOT delete
+###  Chunk 0 ###
+# Overall Document Chunk Options 
+
+## Interesting note: This chuck is hard coded to include = FALSE for the CHUNK, but soft coded TRUE for the rest of the document. If you don't want a chunk to be included in output, you can change the Chunk to FALSE> BUT>>>>>>>>>>>> if you change this chunk to FALSE it makes all chunks false and unchangeable. ???????????????
+
+
+###Necessary Packages for the Course (only needs to be done once, commented out for subsequent use)
+
+#install.packages("mice") #Multivariate Imputation by Chained Equations, used for handling missing data
+library(mice)
+
+#install.packages("VIM") #Visualizing Missing Values, provides graphical visuals of missing data
+library(VIM)
+
+#install.packages("tidyverse") # Functions to create "Tidy" data.frames, inlcudes "dplyr".  A grammar of data manipulation, used for data wrangling 
+library(tidyverse)
+
+# install.packages("ggplot2") #A system for creating visualizations, commonly used for data graphics
+library(ggplot2)
+
+# install.packages("reshape2") #Reshaping data between wide and long formats
+library(reshape2)
+
+#install.packages("corrplot") #Visualizes correlation matrices using graphs
+library(corrplot)
+
+#install.packages("regclass") #Custom package for regression, not required, but many of us are in the habit of using.
+library(regclass)
+
+
+#MORE ********************************
+
+#install.packages("flextable") # Helps create "pretty" tables
+library(flextable) 
+
+ #install.packages("lubridate") # Helps handle to oddities and challenges of dates
+library(lubridate)
+
+#install.packages("rpart") # Decision Tree package
+library(rpart) 
+
+#install.packages("rpart.plot") # Visualization of Decision Trees
+library(rpart.plot) 
+
+## More packages may pop up or you may find ones you want ###**************
+
+```
+
+
+
+
+# Course Overview
+
+This course provides an in-depth introduction to data cleaning and handling missing data using R and the mice package. Designed for students interested in data science and analytics, the course focuses on building practical skills for preparing and managing datasets for analysis. Using RStudio, students will learn foundational data-cleaning techniques, including identifying outliers, handling inconsistencies, and transforming variables.
+
+The course emphasizes methods to handle missing data, a critical aspect of data preprocessing, with particular focus on the Multivariate Imputation by Chained Equations (MICE) package. Students will explore various imputation techniques, learn to select suitable models for different data structures, and assess the quality of imputations. By the end of the course, students will have a solid understanding of effective data-cleaning processes and will be able to use MICE for robust and reproducible imputation workflows, preparing them for advanced data analyses in real-world scenarios.
+
+Make sure you have the above packages installed in your most UP-TO-DATE version of R/R-Studio. Un-comment the lines as needed.
+
+This template contains the **Entire** course. Use this template to proceed one **class at-a-time** (roughly, one Chunk at-a-time)
+
+#### *Delete the instructions above and put your own introduction*
+
+## Class 1: Course Overview, Flow and Rationale Case (Change Headings to match your communication needs)
+
+1) Introduction to Missing Data, Cleaning and Preprocessing
+
+    -Overview of data cleaning importance in the data analysis pipeline.
+    
+    -Introduction to RStudio and essential packages (e.g., dplyr, tidyverse).
+    
+    -Loading and exploring datasets in R.
+    
+   
+
+
+
+Make sure you have created an r.project and that this file is in that folder along with the provided data. Do not create subfolders for data or code that is accessed in the Project
+
+### Step 1) Open Data in your software of choice, can be done in MS Excel, R-Studio, etc.
+
+
+```{r Chunk 1 Load Data, include=FALSE}
+
+###  Chunk 1 ###
+
+
+MainDF = read.csv("0 RawXy01miss v1.9.csv")
+
+StoreDF = read.csv("0 StoreTable v1.9.csv")
+ConcessDF = read.csv("0 ConcessTable v1.9.csv")
+CustomerDF = read.csv("0 CustomerTable v1.9.csv")
+
+
+ ### initialize variables to hold column and row names that are excluded.
+
+
+
+
+
+### View Data in Viewer and variables in Global Environment for common sense  ***************************************************
+### What do you notice about the data? Do you need to report this outside a chunk???
+
+#
+
+```
+
+## Class 2: Quick Wrangling, Start Data Cleaning Process: Steps 1 - 5
+
+# Data Wrangling step
+
+All files merged to one flat file, named FFdf
+```{r Chunk 2 Data Wrangling}
+###  Chunk 2 ###
+
+### COMMON SENSE STEP ###       ** Must be familiar with your data
+
+# Do any "linking" or "Idenifying" variables need to be created ???????????????
+
+
+### Make a flat file ***************** Focus on Merging issues *** CALL the Flat File "FFdf"
+
+
+FFdf = MainDF; nrow(FFdf)
+
+
+nrow(FFdf)
+
+
+
+#********** Carry on my wayward son ................................
+
+# FFdf =  # Single Flat File (FF) Dataframe for continued processing
+
+#################### This is intended for the report, outside the chunk but won't knit unil set up is done:
+
+# #### The full data set has: 
+#  **Rows = `r a[1]`**  
+#  **Columns = `r a[2]`**
+
+```
+
+
+153-155 goes here
+
+## First Steps of Data Cleaning (1-5)
+
+1. Open data in your software of choice (Arrange Columns, Other strange things)
+2. Review variables for common sense based on SME knowledge
+3. Review how the software coded the variables (nominal, continuous)
+4. Perform data integrity/validation checks (misspelled levels, bogus values, combine levels which represent the same thing, etc.)
+5. Handle Dates
+
+
+
+
+
+```{r Chunk 3 Steps 1-5}
+
+### Chunk 3 ###
+
+
+# Step 1:  Open data in your software of choice (Arrange Columns, Other strange things)
+
+     ## Make an identifier variable
+  
+   #Reorder Columns Alphabetically, with Y-variable first
+
+
+
+# Check the structure of the dataset to understand variable types
+  # str(data)
+  # sapply(data, class)
+
+# Summary of numerical variables to spot outliers
+  # summary(data)
+
+# Check categorical variables for potential typos or inconsistencies
+# For example: factor variables
+  # sapply(data, function(x) if (is.factor(x)) levels(x))
+
+# Plot histograms for numerical variables to identify outliers visually
+  # hist(data$NumericVariable)  # Replace 'NumericVariable' with the actual variable name
+
+
+
+#  Step 2: . Review variables for common sense based on SME knowledge
+dim(FFdf)
+
+## Let's get rid of spaces (r made .) in variable names, use underscore_
+
+
+  
+## Let's make all variables start with a capital letter
+  
+
+
+
+# Step 3:  Review how the software coded the variables (nominal, continuous) ## Think about Ordinal
+
+
+
+####### Let's fix all the chr variables
+
+
+
+## Do we want to make Educational_Level ordinal??? 
+
+
+### >>>>>> xRow = 66723 ## Will delete this one row, there is no ID 44
+
+
+length(unique(FFdf$Cust_ID))  ### hmmm is Cust_ID variable an identifier variable ???? 
+
+
+
+
+
+# Step 4:  Perform data integrity/validation checks (misspelled levels, bogus values, combine levels which represent the same thing, etc.)
+
+
+
+
+# Step 5: Handle Dates.**(extract relevant information, e.g., day of the week, hour of day)--------------**
+
+# Extract day, month, and year for analysis
+  # data$DayOfWeek <- weekdays(data$DateColumn)
+  # data$Month <- format(data$DateColumn, "%m")
+  # data$Year <- format(data$DateColumn, "%Y")
+
+
+
+```
+
+
+## Class 3: Data Cleaning Process: Steps 6-7
+
+
+**Step 6) Handle Categorical variables - keep as is, **
+**combine rare levels, combine similar levels-------------------------------------**
+
+```{r}
+# Combine rare levels if necessary for better analysis
+###   data <- data %>%
+#  group_by(Category) %>%
+#  mutate(Category = ifelse(n() < 10, "Other", as.character(Category))) %>%
+#  ungroup() %>%
+#  mutate(Category = as.factor(Category))
+
+#  table(data$Category)
+```
+
+
+
+**Step 7: Remove Zero-Variance Predictors-----------------------------------------**
+
+  Zero variance in a dataset refers to a feature (column) where all values are identical across all observations. This means there’s no variability in that feature — it doesn’t contribute any new information because every row has the same value for that feature.
+
+  For example, if a column called Gender has the value "Male" for every observation, its variance is zero because there’s no distribution of values. In statistical and machine learning contexts, zero-variance features are often removed from datasets as they do not help in differentiating between observations and can introduce unnecessary noise or computational load.
+
+```{r Zero Var}
+# Identify columns with zero variance
+  # use sapply() and or summary() to find columns with zero-variance. 
+  # HOW are you going to eliminate columns???????????????????????????????????????????????????????????
+
+
+
+
+```
+
+Eliminating zero-variance columns has several benefits:
+
+  Improves Model Accuracy: Zero-variance columns don’t differentiate between data points and can add unnecessary complexity or noise, potentially lowering the model's performance.
+
+  Increases Computational Efficiency: Eliminating these columns reduces the amount of data the model has to process, leading to faster computation times.
+
+  Enhances Interpretability: Models become easier to interpret by focusing on variables that carry meaningful information rather than redundant or uninformative features.
+
+  Reduces Overfitting Risk: By removing irrelevant features, you reduce the risk of the model fitting to noise, which can help in generalizing better to new data.
+
+## Class 4: Data Cleaning Process: Steps 8 - 11
+
+**Step 8: Handle NEAR Zero-Variance Predictors------------------------------------**
+
+
+
+Near Zero-Variance Predictors:
+
+  A near zero-variance (NZV) predictor is a feature with very little variability in its values, meaning it mostly contains one single value with only a few exceptions. This type of column provides very low information density, making it unhelpful in identifying differences among observations.
+
+  For instance, if a column called Region has 98% of its values as "North" and only 2% as "South" or "East," it’s likely near zero variance. Like zero-variance predictors, these features can add noise and contribute minimally to model performance.
+
+  Why Remove Near Zero-Variance Predictors? Removing these predictors is important because they may still add unnecessary computation and slightly increase the risk of overfitting, even though they add very little information. This improves both the interpretability and efficiency of your analysis.
+
+```{r Near Zero}
+# Identify near zero-variance columns
+  # Use sapply() with logical conditions to find columns with a high frequency of one single value.
+  # Example: NZV_cols <- nearZeroVar(data)
+
+#How do you want to handle these variables??? Bin??
+
+```
+
+
+
+**Step 9: Remove Redundant and Linear Combination Columns-------------------------**
+##Hmmmmm how would I know. Software can tell when you try to model (singularity error). Use logic for now
+
+
+Redundant and Linear Combination Predictors:
+
+  Redundant predictors are columns that convey the same information as other columns, either by being identical or by being a weighed sum of other columns (known as linear combinations). This can introduce multicollinearity, which reduces the interpretability and can negatively affect some algorithms, like linear regression.
+
+Identifying Redundant Columns:
+
+  Correlation Analysis: Check for highly correlated columns using correlation matrices.
+
+  Domain Knowledge: Identify columns that are likely based on the same underlying metric (e.g., "height in inches" and "height in cm").
+
+  Identifying Linear Combinations:
+
+  These combinations can be identified using a pairwise comparison or with packages like 'corrplot' that have functions designed for this purpose.
+
+```{r}
+# Check for highly correlated columns using correlation matrices
+  # Example: corr_matrix <- cor(data), use library(corrplot) to find correlation between variables
+
+
+
+```
+
+Benefits of Removing Redundant and Linear Combinations:
+
+  Reduces Multicollinearity: Helps avoid issues where one variable linearly predicts another, improving the stability of regression coefficients.
+
+  Improves Model Accuracy: Avoids having multiple predictors telling the model the same information, which could mislead certain models.
+
+  Simplifies Interpretation: Makes the model more straightforward by focusing on unique, non-redundant information.
+
+**Step 10: Search for Outliers and initial stab at Missing Values----------------------------------------------**
+Outliers, what are they good for .....?
+
+  Find them .... by what rule?
+  Investigate them
+  Decide to:  leave as is, correct if wrong, "delete" row, treat as missing data?
+
+
+Missing Values:
+
+  Missing data occurs when no value is stored in a variable for a particular observation. These can arise from errors in data collection, data entry issues, or simply because some information is unavailable. Handling missing values is crucial as they can introduce bias or reduce statistical power if not addressed correctly.
+
+Benefits of Handling Missing Values:
+
+  Reduces Bias: Proper handling of missing data reduces biases that could affect model predictions.
+
+  Improves Model Stability: Ensures the model can generalize better by maintaining consistency in data.
+
+  Increases Data Usability: Removing or imputing missing values ensures that more data is retained for training, which can improve model accuracy.
+
+
+**Step 11: Sanity Check Using Decision Tree**
+
+This step helps find redundant variables and variables that are "too good" to be true and possibly Idetifier variables
+
+
+
+```{r}
+
+
+# Plot histograms for numerical variables to identify outliers visually
+  # hist(data$NumericVariable)  # Replace 'NumericVariable' with the actual variable name
+
+
+# Identify missing values using is.na() and count the frequency of missingness.
+  # For example: missing_counts <- colSums(is.na(data))
+  # Based on the count, decide if you need to impute or remove.
+
+# Calculate the total number of NA (missing) values across the entire dataset
+  # This provides an overview of how many missing values remain to handle
+      # sum(is.na(data))  
+
+# Calculate the count of missing values per column
+  # This helps identify specific columns that may need further cleaning or imputation
+      # ______(is.na(data))  
+
+#Decision Tree rpart()
+
+```
+
+
+
+
+
+
+## Class 5: Introduction to Missing Data
+
+What is Missing Data?
+
+  Definition: Missing data occurs when no value is stored for a variable in an observation.
+
+Types of Missing Data:
+
+  Missing Completely at Random (MCAR): The missingness is completely unrelated to the data. (e.g., a random survey response lost due to a technical glitch).
+  
+  Missing at Random (MAR): The missingness is related to other observed data but not the missing data itself. (e.g., survey respondents with lower incomes are less likely to answer income questions).
+  
+  Not Missing at Random (NMAR): The missingness is related to the missing values themselves. (e.g., people with very high incomes choose not to disclose that information).
+
+Consequences of Missing Data:
+  Can lead to biased estimates and reduced statistical power.
+  Complicates data analysis and interpretation.
+  May affect model performance if not handled properly.
+  
+How to Handle Missing Data
+
+Data Exploration:
+
+  Identify the extent of missing data (e.g., percentage of missing values per variable).
+  
+  Use visualizations (e.g., heatmaps, bar plots) to assess patterns of missingness.
+
+Methods for Dealing with Missing Data:
+
+Deletion Methods:
+
+  Listwise Deletion: Remove cases with missing data from the analysis. (Pros: simple; Cons: may lead tosignificant data loss).
+  
+  Pairwise Deletion: Use all available data for each analysis, only removing data that is missing for specific analyses.
+
+Imputation Methods:
+
+  Mean/Median/Mode Imputation: Fill missing values with the mean, median, or mode of the observed values. (Pros: simple; Cons: can distort variance).
+  
+  Regression Imputation: Use regression models to predict and fill in missing values based on other variables.
+  
+  Multiple Imputation: Generate several datasets with different imputations and average the results to account for variability.
+  
+  K-Nearest Neighbors (KNN): Impute missing values based on the values of the nearest neighbors in the dataset.
+  
+  Model-Based Methods: Use algorithms that can handle missing data (e.g., Random Forest, certain Bayesian approaches).
+  
+Best Practices for Handling Missing Data:
+
+  Assess and document the reasons for missing data.
+  
+  Choose methods that are appropriate for the nature of the missing data.
+  
+  Evaluate the impact of missing data handling on the results.
+  
+  Consider sensitivity analysis to understand the robustness of findings.
+
+Conclusion:
+
+  Summarize the importance of recognizing and addressing missing data.
+  
+  Emphasize that careful handling of missing data can improve the reliability and validity of statistical analyses.
+
+```{r}
+#### Not sure a chuck is needed here
+
+```
+
+## Class 6, Identifying Missing Data
+
+Importance of Identifying Missing Data:
+
+  Impact on statistical analysis and model validity.
+  
+  Need for appropriate handling methods to avoid bias.
+
+Techniques for Identifying Missing Data:
+
+Visual Inspection:
+
+  Use R’s summary() function to quickly assess the presence of missing values.
+
+Count Missing Values:
+
+  Use the is.na() function to check for missing values in specific columns.
+
+Using dplyr for Comprehensive Analysis:
+
+  Leverage the dplyr package to summarize missing data across the dataset.
+  
+Forms of Missing Data-Missing data can take various forms:
+
+  NA (Not Available): The standard representation for missing values in R.
+  
+  Invalid Data Entries: Values that do not conform to expected formats (e.g., text in a numeric column).
+  
+  Placeholders: Special characters or strings used to denote missing values (e.g., ?, NULL, or N/A).
+  
+  Error Messages: Entries resulting from data processing issues, such as #NAME? in Excel, indicating a formula error or invalid reference.
+
+```{r ID Missing Data}
+# ###Same Information from Class #4 and 5 (Data Cleaning Steps 8 - 10, Missing Data,
+#                                          Introduction to Missing Data)
+
+# Identify missing values using is.na() and count the frequency of missingness.
+  # For example: missing_counts <- colSums(is.na(data))
+  # Based on the count, decide if you need to impute or remove.
+
+# Calculate the total number of NA (missing) values across the entire dataset
+  # This provides an overview of how many missing values remain to handle
+      # sum(is.na(______))  
+
+# Calculate the count of missing values per column
+  # This helps identify specific columns that may need further cleaning or imputation
+      # colSums(______(data))  
+
+# Generate a visual aggregation of missing values by column
+  # This visual can make it easier to spot columns with high missingness at a glance
+      # ______(data) -> from library(______)
+
+## Categorical Data, Identifying Missing Data
+# Check for missing values in a categorical variable
+    # sum(______(data$categorical_variable))
+
+# Display a table of 'Category' values (including NA values)
+    # ______(data$categorical_variable, useNA = "ifany")
+
+## Numerical Data, Identifying Missing Data
+# Check for missing values in a numerical variable
+    # sum(is.na(______))
+
+# Display a table of 'Category' values (including NA values)
+    # ______(data$numerical_variable, useNA = "ifany")
+
+# Confirm data types for each variable that has missing data, know what data you're working with...
+ # sapply(data, class)
+ # factor data-type variables, levels(data$factor_variable)
+
+
+########### simple MICE functions
+
+```
+Handling Missing Data-Briefly introduce strategies to handle missing data:
+
+  Deletion: Remove rows with missing values.
+  
+  Imputation: Fill in missing values using various methods (mean, median, mode, etc.).
+  
+  Modeling: Use algorithms that can handle missing data directly.
+
+## Class 7, Handling Misisng Data: Steps 1 - 4
+
+**Step 1: Identify Missing Data:** Already done
+
+
+**Step 2: Mark Missing Data:**
+
+Utilize MICE and dplyr to create Indicator variables for missingness. Standard procedure seems aloof in this part of the process. Indicator variables serve three purposes: 
+1) allow for testing of MCAR and MAR
+2) Sometimes used as a variable
+3) Maintain integrity of the original variables after missing data is replaced.
+
+
+
+```{r eval=FALSE, include=FALSE}
+
+
+md.pattern(data)
+
+
+
+data <- data.frame(
+  A = c(1, NA, 3),
+  B = c(NA, 2, 3)
+)
+
+# Add indicators for missing data
+data_with_indicators <- data %>%
+  mutate(across(everything(), ~ is.na(.), .names = "{.col}_missing"))
+
+
+```
+
+**Step 3: Clean Up Obvious Mistakes:**
+
+  Inspect your dataset for any clear mistakes or non-standard entries. Correct these issues to ensure data integrity. For example, you might need to standardize categorical entries:
+
+```{r}
+# Replace non-standard category IDs ('TEN' and 'Ten') with 10
+  # data$numerical_var <- ______(data$numerical_var, ______ %in% c("TEN", "Ten"), 10)
+
+# Replace non-standard category ID 'One' with 1
+  # data$numerical_var <- replace(______, data$numerical_var %in% "One", 1)
+
+# Fix any textual/string typos
+  # ______ <- replace(data$categorical_var, ______ %in% "apple", "Apple")
+  # OR SOMETHING LIKE THIS..
+  # data$categorical_var <- ______(data$categorical_var, data$categorical_var %in% "Tomatoe", "Tomato")
+
+# If there are mistakes beyond repair, just set them equal to 'NA' or the primary missing data value, primarily for categorical data-type variables
+  # Example - abnormal data types for a categorical datatype
+  #data$categorical_var[data$categorical_var == "Mobile\nDesktop\nTablet\nMobile\nTablet"] <- NA
+```
+
+**Step 4: Make Decisions on Rows/Columns:**
+
+  Evaluate whether to drop rows or columns with excessive missing data or if you should impute values based on the overall data strategy.
+  
+ How will you do this from a coding standpoint??? NEVER DELETE data. 
+
+```{r Eliminating Rows and Columns}
+
+
+
+
+
+
+```
+
+alues and handle them appropriately.
+
+## Class 8, Handling Missing Data: Step 5 - Assess Missingness Patterns
+
+Overview
+
+  In this class, we'll focus on assessing the patterns of missing data in our dataset. Understanding these patterns is crucial for determining the appropriate methods for handling missing values.
+
+Importance of Assessing Missingness Patterns:
+  
+  Identify Systematic Missingness: Recognize if the missing data is random or systematic.
+  
+  Inform Decision-Making: Tailor our approach to imputation or other methods based on the identified patterns. Can be done by naked eye view, or by table(), summary(), or other visuals that R can generate.
+  
+Types of Missingness:
+
+  Missing Completely at Random (MCAR): The missingness is unrelated to any other data.
+  
+  Missing at Random (MAR): The missingness is related to observed data but not to the missing values themselves.
+  
+  Missing Not at Random (MNAR): The missingness is related to the missing data itself.
+
+Techniques for Assessing Missingness Patterns:
+
+  Visual Inspection
+  
+    Heatmaps: Visualize missing data across the dataset.
+    
+    Bar Charts: Compare the count of missing values across variables.
+
+```{r}
+### Categorical Data, Identifying Missing Data Patterns
+# Check for missing values in a categorical variable
+    # sum(______(data$categorical_variable))
+
+# Display a table of 'Category' values (including NA values)
+    # table(______, useNA = "ifany")
+
+## Numerical Data, Identifying Missing Data
+# Check for missing values in a numerical variable
+    # ______(is.na(______))
+
+# Display a table of 'Category' values (including NA values)
+    # summary(______, useNA = "ifany")
+
+# Confirm data types for each variable that has missing data, know what data you're working with...
+ # sapply(data, class)
+ # factor data-type variables levels(data$factor_variable)
+
+### Visuals
+# Generate a visual aggregation of missing values by column
+  # This visual can make it easier to spot columns with high missingness at a glance
+      # aggr(data) -> from library(______)
+
+# Bar Chart Visual
+  # ggplot(missing_df, aes(x = reorder(Variable, MissingCount), y = MissingCount)) +
+  # geom_bar(stat = "identity", fill = "steelblue") +
+  # coord_flip() +  # Flip the coordinates for better readability
+  # labs(title = "Count of Missing Values by Variable", x = "Variable", y = "Missing Count")
+
+# Heat Map Visual
+  # ggplot(______, aes(Var2, Var1)) +
+  #   geom_tile(aes(fill = value), color = "white") +
+  #   scale_fill_manual(values = c("white", "red"), labels = c("Present", "Missing")) +
+  #   labs(title = "Heatmap of Missing Values", x = "Variables", y = "Observations")
+  
+# Table Visual, easy one to use
+  # colSums(______(data))
+
+
+#MICE does NOT have built in tests for MCAR/MAR. You can use indicator variables and logistic regression and/or this package:
+  
+  # library(BaylorEdPsych)
+#LittleMCAR(data)
+
+
+
+```
+
+.
+
+## Class 9, Implement Basic Imputation Methods: Step 6
+
+MICE (Multivariate Imputation by Chained Equations), package provides a variety of imputation techniques that allow us to fill in missing data based on patterns in the dataset.
+
+Let's go through the different impuatation methods, starting with the Basic Imputation Methods:
+
+Mean Imputation:
+
+  Description: Replaces missing values with the mean of the non-missing values for each variable.
+  
+  When to Use: Suitable for continuous variables but may distort data if missing values are not random.
+```{r}
+
+#####******** Decide which missing data will be replaced by simple methods:
+#####*    Consider amount of missingness, importance of the variable
+#####*   This simplifies Multiple Imputation. 
+
+# First and foremost, load in the mice package
+  # library(______)
+
+# Example Code:
+  # imputed_data <- mice(data, method = "mean", m = 1)
+    # Arguments are, dataset being used, imputation method, and number of imputations( m = #)
+
+
+
+```
+
+Predictive Mean Matching (pmm), MOST POPULAR!:
+
+  Description: Finds k-nearest neighbors with similar values to the missing data and randomly selects one of these neighbors to impute.
+  
+  When to Use: Useful for continuous variables, preserving distribution without assuming linearity.
+
+```{r}
+# Example Code:
+  # imputed_data <- mice(data, method = "pmm", m = 1)
+    # Arguments are, dataset being used, imputation method, and number of imputations( m = #)
+```
+
+Linear Regression (norm):
+
+  Description: Uses linear regression models to predict missing values based on other variables.
+  
+  When to Use: Suitable for continuous data where relationships between variables are approximately linear.
+
+```{r}
+# Example Code:
+  # imputed_data <- mice(data, method = "norm", m = 1)
+    # Arguments are, dataset being used, imputation method, and number of imputations( m = #)
+```
+
+Logistic Regression (logreg):
+
+  Description: Fits a logistic regression model to impute binary data (0/1).
+  
+  When to Use: Appropriate for binary categorical variables with missing values.
+
+```{r}
+# Example Code:
+  # imputed_data <- mice(data, method = "logreg", ______ = 1)
+    # Arguments are, dataset being used, imputation method, and number of imputations( m = #)
+```
+
+
+Random Forest (rf):
+
+  Description: Uses random forest models to impute data by drawing multiple decision trees for predictions.
+  
+  When to Use: Suitable for both continuous and categorical data, particularly with non-linear relationships.
+
+```{r}
+# Example Code:
+  # imputed_data <- ______(data, method = "rf", m = 1)
+    # Arguments are, dataset being used, imputation method, and number of imputations( m = #)
+```
+
+Predictive Random Hot Deck Imputation (cart):
+
+  Description: Uses classification and regression trees (CART) to impute values based on predictive similarity.
+  
+  When to Use: Versatile for both continuous and categorical variables; often used when data relationships are complex.
+
+```{r}
+# Example Code:
+  # imputed_data <- mice(______, method = "cart", m = 1)
+    # Arguments are, dataset being used, imputation method, and number of imputations( m = #)
+```
+
+Constant Value (constant):
+
+  Description: Fills missing values with a user-specified constant value.
+  
+  When to Use: Useful when a specific value makes sense for the missing data, such as filling zeroes for missing amounts.
+
+```{r}
+# Example Code:
+  # imputed_data <- mice(data, method = "constant", m = 1, visitSequence = "monotone", maxit = 1)
+    # Arguments are, dataset being used, imputation method, and number of imputations( m = #)
+```
+
+## Class 10: Advanced Imputation Methods: MICE
+
+Advanced MICE Impuation and Functions:
+
+
+Various models available, but the bottom line is you generate k (10ish) distinct datasets, model each one and then combine the coefficients. 
+
+```{r Of MICE and  }
+
+
+
+
+
+
+
+
+
+```
+
+ 
+
+## Class 11: Implement Mice Methods
+
+**Steps to Complete a Mice Imputation Workflow:**
+
+**Step 1) Run the Imputation Process:**
+
+  The mice() function is central to creating multiple imputed datasets. You specify the methods, predictor variables, and other settings to control the imputation process.
+
+```{r}
+# Make sure you have the MICE Package loaded!
+  #library(______)
+
+# View Summary Statistics of your dataset
+  # summary(______)
+
+# Run the imputation with basic methods
+  # imputed_data <- ______(data, method = "___", m = 5, maxit = 5, seed = 123)
+     # method: Defines the imputation technique (e.g., pmm for predictive mean matching).
+     # m: Number of imputations to create (5–10 is standard).
+     # maxit: Sets the number of iterations; higher values may improve results if data patterns are complex.
+```
+
+**Step 2) Extract a COMPLETED Dataset:**
+
+  After imputing, use complete() to select a fully imputed dataset for analysis. You can specify which imputed dataset to retrieve, or select all imputed datasets at once.
+
+```{r}
+# View the summary of your imputation results
+  # ______(imputed_data)
+
+# Extract the first completed dataset for use
+  # completed_data <- complete(imputed_data, action = 1)
+
+# Optional: Extract all imputed datasets
+  # all_completed_data <- ______(imputed_data, action = "all")
+```
+
+**Step 3) Diagnostic Plots for Imputation Quality**
+
+  Plotting the imputation results is useful for checking convergence and the distribution of imputed values. plot() helps visualize stability across iterations and ensures reasonable imputations.
+
+```{r}
+# Convergence diagnostic plot
+  # plot(imputed_data)
+```
+
+**Step 4) Analyze and Pool Results**
+
+  Once you have imputed datasets, use with() to run analyses on each imputed set, and pool() to combine the results. For instance, if you want to perform a regression...
+
+```{r}
+# Run linear regression on each imputed dataset
+  # fit <- with(imputed_data, lm(Y ~ X1 + X2 + X3))
+
+# Pool results across all imputations
+  # pooled_results <- pool(fit)
+
+# Summarize the pooled results
+  # summary(pooled_results)
+```
+
+**Summary of Handling Missing Data alongside MICE IMPUTATION PROCESS**
+
+Introduction to MICE: We learned how to handle missing data using the MICE (Multiple Imputation by Chained Equations) package in R.
+
+Dataset Examination: We began by examining the dataset to identify missing values through summary statistics.
+
+Imputation Process: We ran the imputation process using the mice() function, specifying the number of imputed datasets and the method (e.g., predictive mean matching).
+
+Review Imputation Results: We checked the results of the imputation with the summary() function to ensure it was successful.
+
+Extract Completed Data: We extracted a completed dataset using the complete() function to prepare it for analysis.
+
+Data Analysis: We performed an analysis on the completed dataset using linear regression or other statistical methods.
+
+Pooling Results: If multiple imputations were generated, we utilized with() and pool() to combine results from the imputed datasets for a comprehensive inference.
+
+Diagnostics: We optionally generated diagnostic plots to assess the quality of the imputations, ensuring the results were reliable.
+
+## Class 12: Finalize Draft Modeling File(s)
+
+Key Steps in Finalizing the Modeling File:
+
+Data Review and Cleaning:
+  
+  Verify that all imputation and cleaning processes were successfully executed.
+  
+  
+  Conduct final checks for any remaining missing values or anomalies.
+
+Feature Selection:
+
+  Ensure that relevant features for the modeling process are selected.
+  
+  Discuss methods for feature importance and reduction (e.g., correlation analysis).
+
+Model Specification:
+
+  Review the models to be used (e.g., linear regression, decision trees).
+  
+  Ensure appropriate settings and hyperparameters are in place.
+
+Documentation:
+
+  Comment the code for clarity.
+  
+  Document the data sources, methods used, and rationale for choices made.
+
+Validation:
+
+  Implement cross-validation or hold-out validation methods to assess model performance.
+  
+  Summarize results, including key metrics like RMSE, accuracy, etc.
+
+Output Preparation:
+
+  Organize results for presentation (e.g., tables, plots).
+  
+  Prepare a summary of findings and insights from the model.
+
+```{r}
+# Step 1: Correlation Analysis
+  # Calculate correlation matrix for numeric variables
+    # correlation_matrix <- cor(data, use = "complete.obs") # Only use complete cases for correlation
+    # print(correlation_matrix)  # Display the correlation matrix
+
+# Visualize the correlation matrix using corrplot
+  # corrplot(correlation_matrix, method = "color", 
+  #          title = "Correlation Matrix", 
+  #          addCoef.col = "black", # Add correlation coefficients
+  #          tl.col = "black",      # Text label color
+  #          tl.srt = 45,          # Text label rotation
+  #          number.cex = 0.7)     # Coefficient font size
+
+# Step 2: Model Example
+  # Fit a linear regression model (replace 'response' and 'predictor1' etc. with your variable names)
+    # model <- lm(response ~ predictor1 + predictor2, data = data)
+    # summary(model)  # Show model summary
+
+# Step 3: Documentation Example
+  # Create a README file documenting your data sources and methods
+    # writeLines("## Modeling Documentation\n", "README.md")
+    # writeLines("### Data Sources\n- Source 1: Description\n- Source 2: Description\n", "README.md", append = TRUE)
+    # writeLines("### Imputation Methods\n- Method used: MICE\n", "README.md", append = TRUE)
+    # writeLines("### Model Details\n- Model Type: Linear Regression\n", "README.md", append = TRUE)
+
+# Step 4: Validation Example
+  # Perform a simple validation by splitting the data into training and testing sets
+    # set.seed(123)  # For reproducibility
+    # train_index <- sample(1:nrow(data), 0.7 * nrow(data))  # 70% training data
+    # train_data <- data[train_index, ]  # Training data
+    # test_data <- data[-train_index, ]   # Testing data
+
+# Fit the model on training data
+  # model_train <- lm(response ~ predictor1 + predictor2, data = train_data)
+
+# Predict on test data
+  # predictions <- predict(model_train, newdata = test_data)
+
+# Calculate R-squared value for validation
+  # actuals <- test_data$response  # Actual values
+  # rsq <- 1 - sum((actuals - predictions)^2) / sum((actuals - mean(actuals))^2) # R-squared calculation
+  # print(paste("R-squared: ", rsq))
+
+# Step 5: Output Imputed Datasets to CSV
+  # Assuming 'imputed_data' is your final completed dataset from mice()
+  # imputed_data <- complete(mice(data, m = 5))  # Example of creating an imputed dataset
+  # write.csv(imputed_data, file = "imputed_data.csv", row.names = FALSE)  # Save to CSV
+    #sometimes a for loop is necessary if you have multiple imputed datasets being generated via MICE
+```
+
+^^Code Chunk Explanation Above^^
+
+Correlation Analysis:
+
+  Calculates the correlation matrix for numeric variables and visualizes it using corrplot.
+
+Model Example:
+
+  Fits a linear regression model to the dataset and summarizes the results to understand relationships between variables.
+
+Documentation Example:
+
+  Creates a README file to document project details, including data sources and modeling methods.
+
+Validation Example:
+
+  Splits the dataset into training and testing sets, fits the model on the training data, makes predictions on the test data, and calculates the R-squared value for validation.
+
+Output Imputed Datasets:
+
+  Saves the imputed dataset to a .csv file in the current working directory.
+
+ Class 13: Sensitivity Analysis, Model Comparisons, Final Thoughts
+
+Sensitivity Analysis:
+
+  Sensitivity analysis assesses how sensitive the output of a model is to changes in input parameters.
+  
+  It helps identify which variables have the most influence on model outcomes, allowing for better understanding and interpretation.
+
+```{r}
+# Step 1: Impute missing values using mice
+  # imputed_data <- mice(data, m = 5, method = 'pmm', maxit = 50, seed = 123)
+
+# Step 2: Analyze and compare models
+  # Create a function for fitting models and returning the RMSE
+  #   model_rmse <- function(formula, data) {
+  #     model <- lm(formula, data = data)
+  #     predictions <- predict(model, data)
+  #     rmse <- sqrt(mean((data$y - predictions) ^ 2, na.rm = TRUE))  ## Calculate RMSE
+  #     return(rmse)
+  # }
+
+# Create an empty list to store RMSE for each model
+  # model_results <- list()
+```
+
+Model Comparisons:
+
+  Compare the performance of different models using metrics such as AIC, BIC, RMSE, and R-squared.
+  
+  Utilize cross-validation techniques to ensure robustness in model performance.
+
+```{r}
+### MODEL COMPARISONS
+# Step 1: Fit and evaluate different models on the completed dataset
+  # for (i in 1:5) {
+  #   completed_data <- complete(imputed_data, i)  # Get completed data for each imputation
+  #   # Linear model: y ~ x1 + x2
+  #   model1_rmse <- model_rmse(y ~ x1 + x2, completed_data)
+  #   model_results[[paste("Model1_Imputation", i)]] <- model1_rmse
+  #   
+  #   # Alternative model: y ~ x1 (only x1)
+  #   model2_rmse <- model_rmse(y ~ x1, completed_data)
+  #   model_results[[paste("Model2_Imputation", i)]] <- model2_rmse
+  # }
+
+# Step 2: Compile RMSE results into a data frame for comparison
+  # rmse_df <- data.frame(Model = names(model_results), RMSE = unlist(model_results))
+
+# Step 4: Visualize the RMSE results
+  # ggplot(rmse_df, aes(x = Model, y = RMSE)) +
+  #   geom_bar(stat = "identity", fill = "steelblue") +
+  #   labs(title = "Model Comparison: RMSE for Different Imputations",
+  #        x = "Model", y = "RMSE")
+
+# Final Output: Display RMSE results
+  # print(rmse_df)
+```
+
+Explanation of Code Above:
+
+  Imputation: Use the mice function to impute missing values in the dataset.
+  
+  Model RMSE Function: Create a function model_rmse to fit linear models and compute the Root Mean Squared Error (RMSE) for model evaluation.
+  
+  Model Fitting and Comparison: Loop through each imputation dataset, fit different models, and store their RMSE values.
+  
+  RMSE Compilation: Compile RMSE results into a data frame for easier comparison.
+  
+  Visualization: Create a bar chart to visualize the RMSE for each model across imputations.
+  
+  Output Results: Print the RMSE results to the console.
+
+Course Recap:
+
+Introduction to Data Cleaning and Preprocessing
+
+  Emphasized the importance of data cleaning in the data analysis pipeline.
+  Introduced RStudio and essential packages like dplyr and tidyverse for data manipulation.
+  
+Data Cleansing Process for Numeric Variables
+
+  Identified common issues such as outliers and extreme values in numeric data.
+  Practiced techniques like outlier detection and log transformations using dplyr functions.
+
+Data Cleansing Process for Categorical Variables
+
+  Addressed issues in categorical data, including typos and inconsistent labels.
+  Emphasized recoding values for consistency and combining low-frequency categories.
+
+Introduction to Missing Data
+
+  Explained types of missing data: MCAR, MAR, and MNAR, and their implications for analysis.
+  Demonstrated how to identify missing data using R functions and the mice package.
+
+Identifying and Visualizing Missing Data Patterns
+
+  Explored missing data patterns with summary statistics and visualizations.
+  Used VIM and naniar packages to visualize missing data patterns effectively.
+
+Manual Handling of Missing Data
+
+  Discussed strategies for handling missing data without imputation, like dropping cases or using statistical measures.
+  Reviewed when manual handling is appropriate in data analysis.
+
+Introduction to the MICE Package
+
+  Provided an overview of the MICE framework for multivariate imputation by chained equations.
+  Explained the iterative process of generating multiple imputations with the mice package.
+
+Implementing MICE for Missing Data Imputation
+
+  Configured imputation models tailored to different data types.
+  Practiced running MICE imputations and analyzing the resulting outputs.
+
+Sensitivity Analysis of Imputation Results
+
+  Explained the purpose of sensitivity analysis in validating imputation results.
+  Compared the distributions of original and imputed data visually and statistically.
+
+Model Comparisons with Imputed Data
+
+  Built predictive models using both imputed and non-imputed datasets.
+  Discussed the variability in model performance due to different imputation methods.
+
+Conclusion and Best Practices
+
+  Summarized the entire data cleaning and imputation process, highlighting key takeaways.
+  Encouraged applying learned techniques in a final project and emphasized best practices for handling missing values in professional settings.
+
+Final Thoughts while Moving Forward.............................................
+
+**The Importance of Clean Data**: Emphasizing that the quality of data directly influences the quality of analysis. Proper data cleaning and handling of missing values are critical for drawing valid conclusions and making informed decisions.
+
+**Embracing Imputation Techniques**: Recognizing that missing data is a common challenge in data analysis. Learning and applying imputation techniques, particularly using the MICE package, empowers analysts to make the most of their datasets, ensuring that valuable information is not lost.
+
+**Flexibility and Adaptability**: Understanding that no single method fits all situations. The course has equipped participants with various techniques for data cleaning and imputation, allowing for flexibility and adaptability in different data contexts.
+
+**Collaboration and Best Practices**: Encouraging participants to share their experiences and insights with peers. Collaboration fosters a deeper understanding of data challenges and promotes the adoption of best practices in professional workflows.
+
+**Continuous Learning**: Acknowledging that data science is a rapidly evolving field. The skills and techniques learned in this course provide a strong foundation, but ongoing learning and adaptation are essential for staying current in the industry.
+
+**Application of Knowledge**: Reinforcing the importance of applying learned concepts in real-world scenarios. Practical experience will solidify understanding and enhance problem-solving skills in future data projects.
+
+**A Light-hearted Reminder**: Concluding with a humorous note: "Remember, in the world of data, if you think your data is missing, it might just be having a 'case' of the MIA—Missing In Action!"
+
+=====================================================================================================
+
+**End of Course Joke:**
+
+Why do R programmers prefer dark mode?
+
+
+                                      Because Light Attracts BUGS!!!
+                                      
+                                      
+ 
