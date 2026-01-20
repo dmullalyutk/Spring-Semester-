@@ -62,11 +62,11 @@ if %BEHIND% gtr 0 if %AHEAD% gtr 0 (
     echo Pushing changes...
     git push origin %BRANCH%
 ) else if %AHEAD% gtr 0 (
-    echo Pulling changes from remote...
-    git pull origin %BRANCH%
-) else if %BEHIND% gtr 0 (
     echo Pushing changes to remote...
     git push origin %BRANCH%
+) else if %BEHIND% gtr 0 (
+    echo Pulling changes from remote...
+    git pull origin %BRANCH%
 ) else (
     echo Repository is up to date!
 )
