@@ -52,23 +52,27 @@ echo Commits to pull: %BEHIND%
 echo Commits to push: %AHEAD%
 echo.
 
-if %BEHIND% gtr 0 if %AHEAD% gtr 0 (
-    echo Repository has diverged. Pulling with rebase...
-    git pull --rebase origin %BRANCH%
-    if errorlevel 1 (
-        echo Error: Rebase failed. Please resolve conflicts manually.
-        exit /b 1
+if %BEHIND% gtr 0 (
+    if %AHEAD% gtr 0 (
+        echo Repository has diverged. Pulling with rebase...
+        git pull --rebase origin %BRANCH%
+        if errorlevel 1 (
+            echo Error: Rebase failed. Please resolve conflicts manually.
+            exit /b 1
+        )
+        echo Pushing changes...
+        git push origin %BRANCH%
+    ) else (
+        echo Pulling changes from remote...
+        git pull origin %BRANCH%
     )
-    echo Pushing changes...
-    git push origin %BRANCH%
-) else if %AHEAD% gtr 0 (
-    echo Pushing changes to remote...
-    git push origin %BRANCH%
-) else if %BEHIND% gtr 0 (
-    echo Pulling changes from remote...
-    git pull origin %BRANCH%
 ) else (
-    echo Repository is up to date!
+    if %AHEAD% gtr 0 (
+        echo Pushing changes to remote...
+        git push origin %BRANCH%
+    ) else (
+        echo Repository is up to date!
+    )
 )
 
 echo.
