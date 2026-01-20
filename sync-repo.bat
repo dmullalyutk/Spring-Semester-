@@ -45,11 +45,11 @@ if errorlevel 1 (
 REM Check if local is ahead, behind, or diverged
 set BEHIND=0
 set AHEAD=0
-for /f %%i in ('git rev-list --count HEAD..origin/%BRANCH% 2^>nul') do set AHEAD=%%i
-for /f %%i in ('git rev-list --count origin/%BRANCH%..HEAD 2^>nul') do set BEHIND=%%i
+for /f %%i in ('git rev-list --count HEAD..origin/%BRANCH% 2^>nul') do set BEHIND=%%i
+for /f %%i in ('git rev-list --count origin/%BRANCH%..HEAD 2^>nul') do set AHEAD=%%i
 
-echo Commits to pull: %AHEAD%
-echo Commits to push: %BEHIND%
+echo Commits to pull: %BEHIND%
+echo Commits to push: %AHEAD%
 echo.
 
 if %BEHIND% gtr 0 if %AHEAD% gtr 0 (
