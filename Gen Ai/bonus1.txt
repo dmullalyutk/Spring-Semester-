@@ -22,3 +22,15 @@ for more background to this question.
 
 
 Answer:
+
+The third discovery that makes LLMs particularly successful is the emergence of capabilities through scale - specifically, the discovery of scaling laws and emergent abilities that appear only when models are trained on massive amounts of data with sufficient compute.
+
+Beyond depth (generalization) and width (memorization), LLMs benefit from:
+
+1. Scale-driven emergent capabilities: At sufficient scale, LLMs develop abilities not explicitly programmed, such as in-context learning (few-shot learning without retraining), instruction following, chain-of-thought reasoning, and robust transfer learning across diverse tasks.
+
+2. Self-supervised learning on vast text corpora: LLMs leverage the simple but powerful objective of predicting the next token, which forces the model to learn language structure, world knowledge, reasoning patterns, and contextual understanding from unlabeled data at unprecedented scale.
+
+3. Transformer architecture enabling attention mechanisms: The ability to dynamically weigh the relevance of different parts of the input allows LLMs to handle long-range dependencies and contextual relationships more effectively than previous architectures.
+
+The key insight is that scale is not just "bigger models" but reveals a phase transition where qualitatively new capabilities emerge. This is captured in scaling laws showing that loss predictably decreases with more parameters, data, and compute, and that these improvements translate to better performance on downstream tasks. The combination of massive pre-training followed by fine-tuning or prompting creates models with general-purpose language understanding far beyond what depth and width alone could achieve.
