@@ -99,17 +99,19 @@ Make sure you have created an r.project and that this file is in that folder alo
 ```{r Chunk 1 Load Data, include=FALSE}
 
 ###  Chunk 1 ###
+setwd("C:/Users/david/Desktop/Spring-Semester-/Missing Data")
 
 
-MainDF = read.csv("0 RawXy01miss v1.9.csv")
-
-StoreDF = read.csv("0 StoreTable v1.9.csv")
-ConcessDF = read.csv("0 ConcessTable v1.9.csv")
-CustomerDF = read.csv("0 CustomerTable v1.9.csv")
+MainDF = read.csv("Raw.csv")
+StoreDF = read.csv("StoreTable.csv")
+ConcessDF = read.csv("ConcessTable.csv")
+CustomerDF = read.csv("CustomerTable.csv")
 
 
  ### initialize variables to hold column and row names that are excluded.
 
+excluded_cols <- c()  # or character(0)
+excluded_rows <- c()  # or character(0)
 
 
 
@@ -117,7 +119,17 @@ CustomerDF = read.csv("0 CustomerTable v1.9.csv")
 ### View Data in Viewer and variables in Global Environment for common sense  ***************************************************
 ### What do you notice about the data? Do you need to report this outside a chunk???
 
-#
+dim(MainDF)
+dim(StoreDF)
+dim(ConcessDF)
+dim(CustomerDF)
+
+colSums(is.na(MainDF))
+colSums(is.na(StoreDF))
+colSums(is.na(ConcessDF))
+colSums(is.na(CustomerDF))
+
+
 
 ```
 
@@ -141,6 +153,8 @@ FFdf = MainDF; nrow(FFdf)
 
 
 nrow(FFdf)
+
+
 
 
 
@@ -179,24 +193,27 @@ nrow(FFdf)
 # Step 1:  Open data in your software of choice (Arrange Columns, Other strange things)
 
      ## Make an identifier variable
+FFdf$ID <- 1:nrow(FFdf)
   
    #Reorder Columns Alphabetically, with Y-variable first
-
+y_var <- "Y01"  
+other_vars <- sort(setdiff(names(FFdf), y_var))
+FFdf <- FFdf[, c(y_var, other_vars)]
 
 
 # Check the structure of the dataset to understand variable types
-  # str(data)
-  # sapply(data, class)
+  str(FFdf)
+  sapply(FFdf, class)
 
 # Summary of numerical variables to spot outliers
-  # summary(data)
+  summary(FFdf)
 
 # Check categorical variables for potential typos or inconsistencies
 # For example: factor variables
-  # sapply(data, function(x) if (is.factor(x)) levels(x))
+  #sapply(FFdf, function(x) if (is.factor(x)) levels(x))
 
 # Plot histograms for numerical variables to identify outliers visually
-  # hist(data$NumericVariable)  # Replace 'NumericVariable' with the actual variable name
+  hist(FFdf$Weekend.Attended)  # Replace 'NumericVariable' with the actual variable name
 
 
 
@@ -204,13 +221,13 @@ nrow(FFdf)
 dim(FFdf)
 
 ## Let's get rid of spaces (r made .) in variable names, use underscore_
-
-
+names(FFdf) <- gsub("\\.", "_", names(FFdf))
+names(FFdf) <- gsub(" ", "_", names(FFdf))
   
 ## Let's make all variables start with a capital letter
-  
+names(FFdf) <- gsub("(^|_)([a-z])", "\\1\\U\\2", names(FFdf), perl = TRUE)
 
-
+names(FFdf)
 
 # Step 3:  Review how the software coded the variables (nominal, continuous) ## Think about Ordinal
 
