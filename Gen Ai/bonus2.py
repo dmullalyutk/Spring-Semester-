@@ -33,6 +33,14 @@ print(f"Q1 Answer: {answer}")
 # Example of prompt where flan-t5 is much worse:
 # Prompt: "Write a short poem about the feeling of nostalgia on a rainy day"
 
+prompt = "Write a short poem about the feeling of nostalgia on a rainy day"
+inputs = tokenizer(prompt, return_tensors="pt")
+outputs = model.generate(**inputs, max_new_tokens=256)
+answer = tokenizer.decode(outputs[0], skip_special_tokens=True)
+print(f"Q2 Prompt: {prompt}")
+print(f"Q2 Answer: {answer}")
+
+
 # flan-t5 answer: i woke up in the morning with a sigh of relief i had a dream i was going to see a movie i had a dream i was going to see a movie i had a dream i was going to see a movie... (repeats endlessly)
 
 # ChatGPT answer:
@@ -50,6 +58,12 @@ print(f"Q1 Answer: {answer}")
 
 # Example of prompt where flan-t5 has a similar quality response as ChatGPT:
 # Prompt: "Classify the sentiment of this sentence as positive or negative: I love this movie!"
+prompt = "Classify the sentiment of this sentence as positive or negative: I love this movie!"
+inputs = tokenizer(prompt, return_tensors="pt")
+outputs = model.generate(**inputs, max_new_tokens=256)
+answer = tokenizer.decode(outputs[0], skip_special_tokens=True)
+print(f"Q2 Prompt: {prompt}")
+print(f"Q2 Answer: {answer}")
 
 # flan-t5 answer: positive
 
