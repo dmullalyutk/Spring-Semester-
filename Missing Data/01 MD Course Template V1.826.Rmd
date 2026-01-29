@@ -150,9 +150,20 @@ All files merged to one flat file, named FFdf
 
 
 FFdf = MainDF; nrow(FFdf)
-
-
 nrow(FFdf)
+FFdf = merge(FFdf, StoreDF, by = "Cust_ID", all.x = TRUE)
+nrow(FFdf)  # Should stay the same if it's a proper left join
+
+# Merge with ConcessDF
+FFdf = merge(FFdf, ConcessDF, by = "Cust_ID", all.x = TRUE)
+nrow(FFdf)
+
+# Merge with CustomerDF
+FFdf = merge(FFdf, CustomerDF, by = "Cust_ID", all.x = TRUE)
+nrow(FFdf)
+
+# Store dimensions for reporting
+a = dim(FFdf)
 
 
 
@@ -232,8 +243,15 @@ names(FFdf)
 # Step 3:  Review how the software coded the variables (nominal, continuous) ## Think about Ordinal
 
 
-
 ####### Let's fix all the chr variables
+chr_vars <- names(FFdf)[sapply(FFdf, is.character)]
+for(var in chr_vars) {
+  FFdf[[var]] <- as.factor(FFdf[[var]])
+}
+sapply(FFdf, class)
+
+FFdf1 <- FFdf
+
 
 
 
