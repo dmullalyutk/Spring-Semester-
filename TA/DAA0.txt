@@ -1,1 +1,3 @@
 This is an appropriate screenshot 
+
+This is an appropriate screenshot , quite hard to read even when zoomed in
