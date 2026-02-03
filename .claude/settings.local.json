@@ -3,7 +3,21 @@
     "allow": [
       "Bash(pip install:*)",
       "Bash(findstr:*)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(Rscript -e:*)",
+      "Bash(where:*)",
+      "Bash(where Rscript)",
+      "Bash(dir \"C:\\\\Program Files\\\\R\")",
+      "Bash(dir \"C:\\\\Program Files \\(x86\\)\\\\R\")",
+      "Bash(\"C:\\\\Program Files\\\\R\\\\R-4.5.1\\\\bin\\\\Rscript.exe\" -e:*)",
+      "Bash(py:*)",
+      "Bash(git add:*)",
+      "Bash(git diff-index:*)",
+      "Bash(echo:*)",
+      "Bash(del \"\\\\?\\\\c:\\\\Users\\\\david\\\\Desktop\\\\Spring-Semester-\\\\nul\")",
+      "Bash(powershell -Command \"Remove-Item -LiteralPath ''\\\\?\\\\c:\\\\Users\\\\david\\\\Desktop\\\\Spring-Semester-\\\\nul'' -Force\")",
+      "Bash(powershell -Command \"cmd /c ''del \"\"\\\\?\\\\c:\\\\Users\\\\david\\\\Desktop\\\\Spring-Semester-\\\\nul\"\"''\")",
+      "Bash(cmd.exe /c \"del /f nul\")"
     ]
   }
 }

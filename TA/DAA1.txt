@@ -1,0 +1,8 @@
+This is an appropriate screenshot 
+
+Not enough rows (less than 50)
+
+Missing Data 
+
+Missing Excel File
+
