@@ -1,6 +1,6 @@
-This is an appropriate screenshot 
+This would be an appropriate screenshot 
 
-Not enough rows (less than 50)
+Not enough rows (row one is not data)
 
 Missing Data 
 
