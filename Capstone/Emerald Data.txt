@@ -1,0 +1,27 @@
+Data 
+
+Short Form ? 
+
+
+Number AMR (remember that they didn't want to differentiate) 
+only available for meter not combined meter
+could we find this data for combined meter 
+
+
+AMI - same thing, also what is the difference 
+
+Total number of meters 
+
+Look at relationships between different meter ratios ---> energy served 
+
+significance of daily digital access and direct load control
+
+customer name and id missing 
+
+
+could we use current customer meter data to accurately predict current pickup data and would that allow us to use combined meter data to predict theoretical pickup numbers for non emerald customers. Then we can compare possible pickup gain per region
+
+
+
+
+
