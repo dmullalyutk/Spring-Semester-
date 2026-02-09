@@ -314,13 +314,15 @@ midwest <- c("Illinois", "Indiana", "Michigan", "Ohio", "Wisconsin",
              "Iowa", "Kansas", "Minnesota", "Missouri", "Nebraska",
              "North Dakota", "South Dakota")
 
-south <- c("Delaware", "Florida", "Georgia", "Maryland", "North Carolina",
-           "South Carolina", "Virginia", "District of Columbia", "West Virginia",
+south <- c("Delaware", "Florida", "Georgia", "North Carolina",
+           "South Carolina", "West Virginia",
            "Alabama", "Kentucky", "Mississippi", "Tennessee",
            "Arkansas", "Louisiana", "Oklahoma", "Texas")
 
 west <- c("Arizona", "Colorado", "Idaho", "Montana", "Nevada", "New Mexico",
           "Utah", "Wyoming", "Alaska", "California", "Hawaii", "Oregon", "Washington")
+
+dcarea <- c("Maryland","Virginia", "District of Columbia")
 
 # Create Region variable
 FFdf$Region <- case_when(
@@ -328,6 +330,7 @@ FFdf$Region <- case_when(
   FFdf$State_Name %in% midwest ~ "Midwest",
   FFdf$State_Name %in% south ~ "South",
   FFdf$State_Name %in% west ~ "West",
+  FFdf$State_Name %in% dcarea ~ "DCArea",
   TRUE ~ "Other"  # Catch any unmatched states
 )
 
@@ -452,11 +455,6 @@ find_near_zero_variance <- function(df, threshold = 0.95) {
 nzv_cols <- find_near_zero_variance(FFdf, threshold = 0.95)
 cat("Near-zero variance columns (>95% one value):\n")
 print(nzv_cols)
-
-# Also check at 90% threshold
-nzv_cols_90 <- find_near_zero_variance(FFdf, threshold = 0.90)
-cat("\nNear-zero variance columns (>90% one value):\n")
-print(nzv_cols_90)
 ```
 
 ```{r step8_handle_nzv, echo=TRUE}
@@ -745,11 +743,6 @@ if(length(sanity_tree$variable.importance) > 0) {
 cat("\n=== SANITY CHECK ANALYSIS ===\n\n")
 
 
-cat("\n--- Interpretation ---\n")
-cat("1. If a single variable achieves >90% accuracy: investigate for data leakage\n")
-cat("2. If an ID-like variable appears: exclude from modeling\n")
-cat("3. Top predictors should make business sense\n\n")
-
 # Check tree performance
 predictions <- predict(sanity_tree, tree_data, type = "class")
 accuracy <- mean(predictions == tree_data$Y01, na.rm = TRUE)
@@ -824,7 +817,7 @@ Top Variable Importance Comparison:
 
 **Analysis:**
 
-- **Accuracy dropped from 94.04% to 87.23%** - expected and healthy
+- **Accuracy dropped from 94.04% to 88.11%** - expected and healthy
 - **Regional grouping reduces overfitting risk** from high-cardinality State_Name
 - **Simpler tree structure** with only Region and Favorite_Team as major splits
 - **Recommendation:** Use Region variable for modeling to avoid state-level overfitting
