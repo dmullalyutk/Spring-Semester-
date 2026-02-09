@@ -17,7 +17,18 @@
       "Bash(del \"\\\\?\\\\c:\\\\Users\\\\david\\\\Desktop\\\\Spring-Semester-\\\\nul\")",
       "Bash(powershell -Command \"Remove-Item -LiteralPath ''\\\\?\\\\c:\\\\Users\\\\david\\\\Desktop\\\\Spring-Semester-\\\\nul'' -Force\")",
       "Bash(powershell -Command \"cmd /c ''del \"\"\\\\?\\\\c:\\\\Users\\\\david\\\\Desktop\\\\Spring-Semester-\\\\nul\"\"''\")",
-      "Bash(cmd.exe /c \"del /f nul\")"
+      "Bash(cmd.exe /c \"del /f nul\")",
+      "Bash(dir:*)",
+      "Bash(dir \"C:\\\\Program Files \\(x86\\)\\\\R\" /b)",
+      "Bash(\"C:\\\\Program Files\\\\R\\\\R-4.5.1\\\\bin\\\\Rscript.exe\" -e \"rmarkdown::render\\(''1_5.Rmd'', output_format = ''html_document''\\)\")",
+      "Bash(\"C:\\\\Program Files\\\\R\\\\R-4.5.1\\\\bin\\\\Rscript.exe\":*)",
+      "Bash(\"C:\\\\Program Files\\\\R\\\\R-4.5.1\\\\bin\\\\Rscript.exe\" \"c:\\\\Users\\\\david\\\\Desktop\\\\Spring-Semester-\\\\Missing Data\\\\test_code.R\")",
+      "Bash(del \"c:\\\\Users\\\\david\\\\Desktop\\\\Spring-Semester-\\\\Missing Data\\\\test_code.R\")",
+      "Bash(cmd /c \"del \"\"c:\\\\Users\\\\david\\\\Desktop\\\\Spring-Semester-\\\\Missing Data\\\\test_code.R\"\"\")",
+      "Bash(cmd /c \"dir /s /b \"\"C:\\\\Program Files\\\\R\\\\*Rscript.exe\"\" 2>nul\")",
+      "Bash(cmd /c:*)",
+      "Bash(powershell:*)",
+      "Bash(\"C:/Program Files/R/R-4.4.1/bin/Rscript.exe\" -e \"\nsuppressPackageStartupMessages\\({\n  library\\(tidyverse\\)\n}\\)\n\n# Load and merge data\nMainDF <- read.csv\\(''Raw.csv''\\)\nStoreDF <- read.csv\\(''StoreTable.csv''\\)\nConcessDF <- read.csv\\(''ConcessTable.csv''\\)\nCustomerDF <- read.csv\\(''CustomerTable.csv''\\)\n\nFFdf <- MainDF\nFFdf <- merge\\(FFdf, StoreDF, by = ''Cust_ID'', all.x = TRUE\\)\nFFdf <- merge\\(FFdf, ConcessDF, by = ''Cust_ID'', all.x = TRUE\\)\nFFdf <- merge\\(FFdf, CustomerDF, by = ''Cust_ID'', all.x = TRUE\\)\n\ncat\\(''=== DATASET DIMENSIONS ===\\\\n''\\)\ncat\\(''Rows:'', nrow\\(FFdf\\), ''Cols:'', ncol\\(FFdf\\), ''\\\\n\\\\n''\\)\n\n# Clean names\nnames\\(FFdf\\) <- gsub\\(''\\\\.'', ''_'', names\\(FFdf\\)\\)\nnames\\(FFdf\\) <- gsub\\('' '', ''_'', names\\(FFdf\\)\\)\n\n# Convert chars to factors\nchr_vars <- names\\(FFdf\\)[sapply\\(FFdf, is.character\\)]\nfor\\(var in chr_vars\\) { FFdf[[var]] <- as.factor\\(FFdf[[var]]\\) }\n\n# Convert 999 to NA\nFFdf[[''DistA'']][FFdf[[''DistA'']] == 999] <- NA\n\ncat\\(''=== STEP 6: KEY CATEGORICAL DISTRIBUTIONS ===\\\\n''\\)\ncat\\(''\\\\n--- Sex ---\\\\n''\\); print\\(table\\(FFdf[[''Sex'']], useNA=''ifany''\\)\\)\ncat\\(''\\\\n--- Marital ---\\\\n''\\); print\\(table\\(FFdf[[''Marital'']], useNA=''ifany''\\)\\)\ncat\\(''\\\\n--- Account_Type ---\\\\n''\\); print\\(table\\(FFdf[[''Account_Type'']], useNA=''ifany''\\)\\)\ncat\\(''\\\\n--- Educational_Level ---\\\\n''\\); print\\(table\\(FFdf[[''Educational_Level'']], useNA=''ifany''\\)\\)\n\ncat\\(''\\\\n=== STATE DISTRIBUTION \\(Top 10\\) ===\\\\n''\\)\nprint\\(head\\(sort\\(table\\(FFdf[[''State_Name'']]\\), decreasing=TRUE\\), 10\\)\\)\ncat\\(''Total unique states:'', length\\(unique\\(FFdf[[''State_Name'']]\\)\\), ''\\\\n''\\)\n\")"
     ]
   }
 }
