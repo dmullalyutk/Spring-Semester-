@@ -1,0 +1,96 @@
+================================================================================
+RUNBOOK - Group Assignment 1: Incremental Learning on Large Data
+================================================================================
+
+OVERVIEW
+--------
+This project implements a feed-forward neural network for predicting product
+quantity sold using incremental learning techniques. The model processes data
+that is larger than typical RAM by reading and training on mini-batches.
+
+REQUIREMENTS
+------------
+Python 3.8+
+Required packages:
+  - numpy
+  - pandas
+  - matplotlib
+  - psutil
+
+Install dependencies:
+  pip install numpy pandas matplotlib psutil
+
+FILE STRUCTURE
+--------------
+  pricing.csv           - Training data (500,000 records)
+  pricing_test.csv      - Test data (139,257 records)
+  incremental_nn.py     - Main training script
+  RUNBOOK.txt           - This file
+
+HOW TO RUN
+----------
+1. Ensure all data files are in the same directory as the script
+2. Open a terminal/command prompt
+3. Navigate to the project directory:
+   cd "c:\Users\david\Desktop\Spring-Semester-\Deep Learning"
+4. Run the script:
+   python incremental_nn.py
+
+CONFIGURATION
+-------------
+The following parameters can be modified in the main() function of incremental_nn.py:
+
+  BATCH_SIZE = 64         # Mini-batch size for incremental learning
+  EPOCHS = 3              # Number of passes through training data
+  HIDDEN_SIZES = (64, 32, 16)  # Neurons in each hidden layer
+  LEARNING_RATE = 0.001   # Learning rate for gradient descent
+
+MODEL ARCHITECTURE
+------------------
+  - Input Layer: 5 features (sku, price, order, duration, category)
+  - Hidden Layer 1: 64 neurons, Sigmoid activation
+  - Hidden Layer 2: 32 neurons, Sigmoid activation
+  - Hidden Layer 3: 16 neurons, Sigmoid activation
+  - Output Layer: 1 neuron, Linear activation (regression)
+
+INCREMENTAL LEARNING APPROACH
+-----------------------------
+1. Data is read in chunks (mini-batches) using pandas chunked reading
+2. Each mini-batch is used to:
+   a. Perform forward pass
+   b. Calculate MSE loss
+   c. Perform backpropagation
+   d. Update weights using gradient descent
+3. This process repeats for all chunks, for multiple epochs
+4. Memory usage remains constant as only one chunk is in memory at a time
+
+OUTPUT FILES
+------------
+After running, the following files will be generated:
+  - learning_curve.png        - Plot of MSE vs instances trained
+  - variable_importance.png   - Bar chart of feature importances
+  - partial_dependence.png    - Partial dependence plots for all features
+
+EXPECTED OUTPUT
+---------------
+The script will print:
+  - Training progress (chunk number, instances, MSE, memory usage)
+  - Test set evaluation metrics (MSE, RMSE, R-squared)
+  - Variable importance rankings
+  - Summary statistics
+
+TROUBLESHOOTING
+---------------
+1. Memory errors: Reduce BATCH_SIZE
+2. Slow training: Increase BATCH_SIZE or reduce EPOCHS
+3. Poor R-squared: Increase EPOCHS, adjust LEARNING_RATE, or modify HIDDEN_SIZES
+4. Missing psutil: Install with 'pip install psutil'
+
+NOTES
+-----
+- The test file (pricing_test.csv) has no header row
+- All categorical variables are integer-encoded
+- Numeric variables have been pre-scaled by a constant
+- Training is reproducible (random seed = 42)
+
+================================================================================
