@@ -3,9 +3,9 @@ title: "Data Wrangling and Cleaning: Steps 1-11"
 author: "David Mullaly"
 date: "`r Sys.Date()`"
 output:
-  pdf_document: default
-  html_document: default
   word_document: default
+  html_document: default
+  pdf_document: default
 ---
 
 ## Introduction
@@ -235,7 +235,7 @@ print(sort(na_cols, decreasing = TRUE))
 | Cust_ID duplicates | 175 duplicates in MainDF - investigate or deduplicate |
 | PII columns | Address, Name, PhoneNum 100% missing - exclude |
 
-## Class 3: Data Cleaning Process: Steps 6-7
+
 
 **Step 6: Handle Categorical Variables - keep as is, combine rare levels, combine similar levels**
 
@@ -302,9 +302,36 @@ print(length(levels(FFdf$State_Name)))
 cat("Number of unique states:", length(unique(FFdf$State_Name)), "\n")
 ```
 
+```{r step6_lump_rare_levels, echo=TRUE}
+# Lump rare factor levels into "Other" using forcats::fct_lump_prop()
+# Threshold: levels appearing in < 5% of non-NA observations are combined
+
+# Store original levels for reference
+factor_vars_to_lump <- names(FFdf)[sapply(FFdf, is.factor)]
+
+# Exclude variables we handle separately (State_Name -> Region, Marital already reviewed)
+skip_vars <- c("State_Name", "State_Loc", "Marital", "Marital_Original","Educational_Level","Seating_Location","Favorite_Caps_Player","Job_Sector")
+lump_vars <- setdiff(factor_vars_to_lump, skip_vars)
+
+cat("=== LUMPING RARE LEVELS (< 5%) INTO 'Other' ===\n\n")
+
+for(var in lump_vars) {
+  original_levels <- nlevels(FFdf[[var]])
+  FFdf[[var]] <- fct_lump_prop(FFdf[[var]], prop = 0.05, other_level = "Other")
+  new_levels <- nlevels(FFdf[[var]])
+
+  if(original_levels != new_levels) {
+    cat(var, ": ", original_levels, " -> ", new_levels, " levels\n", sep = "")
+    print(table(FFdf[[var]], useNA = "ifany"))
+    cat("\n")
+  }
+}
+
+cat("Lumping complete.\n")
+```
+
 ```{r step6_group_states_by_region, echo=TRUE}
-# Group states into US Census Bureau regions to reduce cardinality
-# This addresses the high-cardinality issue identified in Step 11
+
 
 # Define region mappings
 northeast <- c("Connecticut", "Maine", "Massachusetts", "New Hampshire",
@@ -357,8 +384,8 @@ if(length(unmatched_states) > 0) {
 
 - Marital has "U" (Unknown) level - kept as separate category for now
 - Educational_Level could be made ordinal if needed for certain models
-- **State_Name grouped into 4 US Census regions (Northeast, Midwest, South, West)** - reduces cardinality from 50+ levels to 4
-- Rare levels (< 5%) should be monitored for potential combination
+- **State_Name grouped into US regions** - reduces cardinality from 50 levels to 5 (Northeast, Midwest, South, West, DCArea)
+- **Rare levels (< 5%) lumped into "Other"** using `fct_lump_prop()` for all applicable factor variables
 
 ---
 
@@ -702,10 +729,11 @@ cat("Created outlier flag variables: Flag_Tenure_High, Flag_Survey_Invalid\n")
 
 ```{r step11_decision_tree, echo=TRUE, fig.width=10, fig.height=8}
 # Prepare data for decision tree
-# Exclude ID columns and flag variables
+# Exclude ID columns, flag variables, and high-cardinality variables
 exclude_from_tree <- c("ID", "Cust_ID", "Flag_Tenure_High", "Flag_Survey_Invalid",
                        "Marital_Original", "Last_Contact", "Contact_Year",
-                       "Contact_Month", "Contact_Day", "Contact_Weekday", "Contact_Hour")
+                       "Contact_Month", "Contact_Day", "Contact_Weekday", "Contact_Hour",
+                       "State_Name", "Zip_Codes")
 
 tree_vars <- names(FFdf)[!names(FFdf) %in% exclude_from_tree]
 tree_data <- FFdf[, tree_vars]
@@ -717,6 +745,7 @@ tree_data <- tree_data[!is.na(tree_data$Y01), ]
 tree_data$Y01 <- as.factor(tree_data$Y01)
 
 # Build a simple decision tree (max 2-3 splits for sanity check)
+# Uses Region variable (from Step 6) instead of high-cardinality State_Name/Zip_Codes
 sanity_tree <- rpart(Y01 ~ .,
                      data = tree_data,
                      method = "class",
@@ -742,7 +771,6 @@ if(length(sanity_tree$variable.importance) > 0) {
 # Analyze tree results
 cat("\n=== SANITY CHECK ANALYSIS ===\n\n")
 
-
 # Check tree performance
 predictions <- predict(sanity_tree, tree_data, type = "class")
 accuracy <- mean(predictions == tree_data$Y01, na.rm = TRUE)
@@ -755,72 +783,25 @@ if(accuracy > 0.90) {
 }
 ```
 
-```{r step11_tree_with_region, echo=TRUE, fig.width=10, fig.height=8}
-# Build a second tree using Region instead of State_Name to reduce cardinality issues
-# Exclude high-cardinality variables that may cause overfitting
-exclude_high_card <- c("ID", "Cust_ID", "Flag_Tenure_High", "Flag_Survey_Invalid",
-                       "Marital_Original", "Last_Contact", "Contact_Year",
-                       "Contact_Month", "Contact_Day", "Contact_Weekday", "Contact_Hour",
-                       "State_Name", "Zip_Codes")  # Exclude high-cardinality vars
-
-tree_vars_region <- names(FFdf)[!names(FFdf) %in% exclude_high_card]
-tree_data_region <- FFdf[, tree_vars_region]
-
-# Remove rows with NA in response variable
-tree_data_region <- tree_data_region[!is.na(tree_data_region$Y01), ]
-
-# Convert Y01 to factor for classification tree
-tree_data_region$Y01 <- as.factor(tree_data_region$Y01)
-
-# Build decision tree with Region instead of State_Name
-sanity_tree_region <- rpart(Y01 ~ .,
-                            data = tree_data_region,
-                            method = "class",
-                            control = rpart.control(maxdepth = 3, minsplit = 20, cp = 0.01))
-
-# Plot the tree
-rpart.plot(sanity_tree_region,
-           main = "Sanity Check Tree (Using Region instead of State_Name)",
-           extra = 104,
-           box.palette = "RdYlGn")
-
-# Variable importance for region-based tree
-cat("\n=== VARIABLE IMPORTANCE (Region-based Tree) ===\n")
-if(length(sanity_tree_region$variable.importance) > 0) {
-  var_imp_region <- sort(sanity_tree_region$variable.importance, decreasing = TRUE)
-  print(head(var_imp_region, 10))
-} else {
-  cat("No variables selected by the tree\n")
-}
-
-# Check accuracy
-predictions_region <- predict(sanity_tree_region, tree_data_region, type = "class")
-accuracy_region <- mean(predictions_region == tree_data_region$Y01, na.rm = TRUE)
-cat("\nTree accuracy (with Region):", round(accuracy_region * 100, 2), "%\n")
-```
-
 **Step 11 Results:**
 
-**Original Tree (with State_Name):** 94.04% accuracy - triggered data leakage warning due to high-cardinality variables.
+The decision tree uses Region (from Step 6) instead of raw State_Name/Zip_Codes to avoid overfitting from high-cardinality variables.
 
-**Updated Tree (with Region):** Uses the 4-level Region variable created in Step 6 instead of State_Name (50+ levels) and excludes Zip_Codes.
+Top Variable Importance:
 
-Top Variable Importance Comparison:
-
-| Original Tree | Region-based Tree |
-|---------------|-------------------|
-| State_Name (2176.2) | Region (1095.7) |
-| Zip_Codes (1807.7) | Favorite_Team (695.2) |
-| Region (1214.0) | PerUsed (4.2) |
-| Favorite_Team (790.6) | |
-| PerUsed (429.5) | |
+| Variable | Importance |
+|----------|------------|
+| Region | 1505.2 |
+| Favorite_Team | 253.5 |
+| PerUsed | 245.2 |
+| DistA | 196.8 |
+| Tenure | 187.7 |
 
 **Analysis:**
 
-- **Accuracy dropped from 94.04% to 88.11%** - expected and healthy
-- **Regional grouping reduces overfitting risk** from high-cardinality State_Name
-- **Simpler tree structure** with only Region and Favorite_Team as major splits
-- **Recommendation:** Use Region variable for modeling to avoid state-level overfitting
+- **Accuracy ~88%** - reasonable, no obvious data leakage
+- **Region is the dominant predictor** - geographic location strongly predicts Y01
+- **No high-cardinality variables** causing artificial inflation of accuracy
 
 ---
 
@@ -830,9 +811,9 @@ Top Variable Importance Comparison:
 cat("=== DATA CLEANING SUMMARY (Steps 6-11) ===\n\n")
 
 cat("Step 6 - Handle Categorical Variables:\n")
-cat("  - Reviewed level distributions for rare levels\n")
+cat("  - Rare factor levels (< 5%) lumped into 'Other' via fct_lump_prop()\n")
 cat("  - Marital 'U' kept as separate category\n")
-cat("  - State_Name grouped into 4 US Census regions (Northeast, Midwest, South, West)\n\n")
+cat("  - State_Name grouped into US Census regions\n\n")
 
 cat("Step 7 - Zero-Variance Predictors:\n")
 cat("  - Columns removed:", length(zero_var_cols), "\n\n")
@@ -866,7 +847,8 @@ cat("\nCleaned dataset saved to: FFdf_cleaned.csv\n")
 | Step | Issue | Recommendation |
 |------|-------|----------------|
 | 6 | Marital "U" unknown | Keep as category or convert to NA during imputation |
-| 6 | State_Name high cardinality | **RESOLVED:** Grouped into 4 US Census regions |
+| 6 | Rare factor levels (< 5%) | **RESOLVED:** Lumped into "Other" via fct_lump_prop() |
+| 6 | State_Name high cardinality | **RESOLVED:** Grouped into US Census regions |
 | 7 | Zero-variance columns | Removed from dataset |
 | 8 | Near-zero variance | Monitor during modeling; consider binning |
 | 9 | State_Loc redundant | Removed |

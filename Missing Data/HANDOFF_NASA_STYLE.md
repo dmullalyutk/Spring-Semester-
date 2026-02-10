@@ -2,8 +2,8 @@
 ## NASA-JSC Software Engineering Standards Compliant
 
 **Document ID:** MD-CLEAN-001
-**Version:** 1.0
-**Date:** 2026-02-09
+**Version:** 1.1
+**Date:** 2026-02-10
 **Author:** Claude Code Assistant
 **Status:** READY FOR CONTINUATION
 
@@ -38,7 +38,7 @@ Complete data wrangling and cleaning (Steps 1-11) for the Missing Data course as
 ### 2.3 Derived Variables Created
 | Variable | Source | Purpose |
 |----------|--------|---------|
-| Region | State_Name | Grouped into 4 US Census regions |
+| Region | State_Name | Grouped into 5 regions (Northeast, Midwest, South, West, DCArea) |
 | Contact_Year | Last_Contact | Extracted date component |
 | Contact_Month | Last_Contact | Extracted date component |
 | Contact_Day | Last_Contact | Extracted date component |
@@ -54,8 +54,9 @@ Complete data wrangling and cleaning (Steps 1-11) for the Missing Data course as
 ### 3.1 Step 6: Categorical Variables
 - [x] Reviewed level distributions for all factor variables
 - [x] Marital "U" (Unknown) retained as separate category
-- [x] **State_Name grouped into 4 regions: Northeast, Midwest, South, West**
-- [x] Rare levels (< 5%) identified and documented
+- [x] **State_Name grouped into 5 regions: Northeast, Midwest, South, West, DCArea**
+- [x] Rare levels (< 5%) lumped into "Other" via fct_lump_prop()
+- [x] Skip vars for lumping: State_Name, State_Loc, Marital, Marital_Original, Educational_Level, Seating_Location, Favorite_Caps_Player, Job_Sector
 
 ### 3.2 Step 7: Zero-Variance Predictors
 - [x] Identified and removed zero-variance columns
@@ -71,9 +72,10 @@ Complete data wrangling and cleaning (Steps 1-11) for the Missing Data course as
 - [x] Removed State_Loc (redundant with State_Name)
 - [x] Correlation matrix generated and analyzed
 - [x] **Multicollinearity clusters identified:**
-  - Cluster 1: First_Year_STH ↔ Rep_Visits ↔ Spent_Other_Teams ↔ STH_Attended
-  - Cluster 2: Weekday_Attended ↔ Weekday_Sold, Weekend_Attended ↔ Weekend_Sold
-- [x] Flagged for removal: Rep_Visits, Weekday_Sold, Weekend_Sold
+  - Cluster 1: Rep_Visits vs Total_Spent (r = 0.947), Team_Store_Total vs Total_Spent (r = 0.853)
+  - Cluster 2: Concession_Total vs NumSeats (r = 0.915)
+  - Cluster 3: Weekday_Attended vs Weekday_Sold (r = -0.946)
+- [x] Flagged for removal: Rep_Visits, Team_Store_Total
 
 ### 3.5 Step 10: Outliers & Missing Values
 - [x] Boxplots generated for key numeric variables
@@ -82,9 +84,9 @@ Complete data wrangling and cleaning (Steps 1-11) for the Missing Data course as
 - [x] Missing data summary generated
 
 ### 3.6 Step 11: Decision Tree Sanity Check
-- [x] Original tree: 94.04% accuracy (triggered leakage warning)
-- [x] **Created second tree using Region instead of State_Name**
-- [x] Excluded high-cardinality: State_Name, Zip_Codes
+- [x] Decision tree built using Region (excludes State_Name, Zip_Codes)
+- [x] Accuracy ~88% - no data leakage detected
+- [x] Top predictors: Region (1505.2), Favorite_Team (253.5), PerUsed (245.2)
 - [x] Variable importance documented
 
 ---
@@ -135,12 +137,13 @@ northeast <- c("Connecticut", "Maine", "Massachusetts", "New Hampshire",
 midwest <- c("Illinois", "Indiana", "Michigan", "Ohio", "Wisconsin",
              "Iowa", "Kansas", "Minnesota", "Missouri", "Nebraska",
              "North Dakota", "South Dakota")
-south <- c("Delaware", "Florida", "Georgia", "Maryland", "North Carolina",
-           "South Carolina", "Virginia", "District of Columbia", "West Virginia",
+south <- c("Delaware", "Florida", "Georgia", "North Carolina",
+           "South Carolina", "West Virginia",
            "Alabama", "Kentucky", "Mississippi", "Tennessee",
            "Arkansas", "Louisiana", "Oklahoma", "Texas")
 west <- c("Arizona", "Colorado", "Idaho", "Montana", "Nevada", "New Mexico",
           "Utah", "Wyoming", "Alaska", "California", "Hawaii", "Oregon", "Washington")
+dcarea <- c("Maryland", "Virginia", "District of Columbia")
 ```
 
 ---
@@ -151,7 +154,7 @@ Before proceeding to Missing Data analysis (Class 5+):
 
 - [ ] Knit 1_5.Rmd successfully to PDF
 - [ ] Verify FFdf_cleaned.csv contains all expected columns
-- [ ] Confirm Region variable has 4 levels (no "Other")
+- [ ] Confirm Region variable has 5 levels (Northeast, Midwest, South, West, DCArea)
 - [ ] Verify no zero-variance columns remain
 - [ ] Review decision tree output for data leakage
 - [ ] Confirm multicollinearity flags are documented
@@ -173,9 +176,8 @@ Before proceeding to Missing Data analysis (Class 5+):
 - Contact_* date components (derived from Last_Contact)
 
 ### 7.3 Variables Flagged for Model Removal (VIF Check)
-- Rep_Visits (correlated with First_Year_STH)
-- Weekday_Sold (correlated with Weekday_Attended)
-- Weekend_Sold (correlated with Weekend_Attended)
+- Rep_Visits (r = 0.947 with Total_Spent)
+- Team_Store_Total (r = 0.853 with Total_Spent)
 
 ---
 
@@ -188,12 +190,12 @@ Before proceeding to Missing Data analysis (Class 5+):
 | Step 3: Variable types | Class 2 | step3_variable_types | COMPLETE |
 | Step 4: Validation | Class 2 | step4_checks | COMPLETE |
 | Step 5: Dates | Class 2 | step5_handle_dates | COMPLETE |
-| Step 6: Categorical | Class 3 | step6_categorical, step6_group_states_by_region | COMPLETE |
+| Step 6: Categorical | Class 3 | step6_categorical, step6_lump_rare_levels, step6_group_states_by_region | COMPLETE |
 | Step 7: Zero-variance | Class 3 | step7_zero_variance | COMPLETE |
 | Step 8: Near zero-var | Class 4 | step8_near_zero_variance | COMPLETE |
 | Step 9: Redundant | Class 4 | step9_redundant, step9_handle_multicollinearity | COMPLETE |
 | Step 10: Outliers | Class 4 | step10_outliers, step10_missing_assessment | COMPLETE |
-| Step 11: Decision tree | Class 4 | step11_decision_tree, step11_tree_with_region | COMPLETE |
+| Step 11: Decision tree | Class 4 | step11_decision_tree, step11_tree_analysis | COMPLETE |
 
 ---
 
