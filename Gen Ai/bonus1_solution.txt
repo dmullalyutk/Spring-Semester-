@@ -1,0 +1,28 @@
+Q1
+
+This question is the course thought starter. 
+
+Neural networks have seen great success in the past two decades,
+driven by two discoveries: making them deeper enables them to generalize (i.e., produce sensible outputs 
+that were not in the training data) better to unseen situations (i.e., particular combinations of values on features that were
+not in the training data), and making them wider enables them to memorize the training
+data better (i.e., learning frequent co-occurence of instances or features in training data). 
+
+Hence, the former leads to the name deep learning, and the latter could be called wide learning.
+
+In LLMs these two discoveries are still key, but there is a third discovery that is a much
+bigger factor in why these models are so successful. What do you think that is?
+
+You will be given full credit if you answer correctly or if you answer incorrectly but show
+that you have given this question a good deal of thought.
+
+If you were absent during class, please watch the video recording 
+for more background to this question.
+
+
+Answer:
+
+Learning across time and having access to the entirety of previous steps is crucial 
+in the performance of LLMs.
+
+"Long learning"
