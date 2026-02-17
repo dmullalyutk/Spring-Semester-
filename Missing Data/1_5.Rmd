@@ -240,7 +240,7 @@ print(sort(na_cols, decreasing = TRUE))
 **Step 6: Handle Categorical Variables - keep as is, combine rare levels, combine similar levels**
 
 
-```{r step6_categorical, echo=TRUE}
+```{r step6_categorical, echo=FALSE}
 # Get all factor variables
 factor_vars <- names(FFdf)[sapply(FFdf, is.factor)]
 cat("Factor variables:", length(factor_vars), "\n")
@@ -284,7 +284,7 @@ cat("\n--- Educational_Level Distribution ---\n")
 print(table(FFdf$Educational_Level, useNA = "ifany"))
 ```
 
-```{r step6_handle_categorical, echo=TRUE}
+```{r step6_handle_categorical, echo=FALSE}
 # Handle Marital "U" (Unknown) - treat as NA for analysis purposes
 # Create backup first
 FFdf$Marital_Original <- FFdf$Marital
@@ -302,7 +302,7 @@ print(length(levels(FFdf$State_Name)))
 cat("Number of unique states:", length(unique(FFdf$State_Name)), "\n")
 ```
 
-```{r step6_lump_rare_levels, echo=TRUE}
+```{r step6_lump_rare_levels, echo=FALSE}
 # Lump rare factor levels into "Other" using forcats::fct_lump_prop()
 # Threshold: levels appearing in < 5% of non-NA observations are combined
 
@@ -330,7 +330,7 @@ for(var in lump_vars) {
 cat("Lumping complete.\n")
 ```
 
-```{r step6_group_states_by_region, echo=TRUE}
+```{r step6_group_states_by_region, echo=FALSE}
 
 
 # Define region mappings
@@ -393,7 +393,7 @@ if(length(unmatched_states) > 0) {
 
 
 
-```{r step7_zero_variance, echo=TRUE}
+```{r step7_zero_variance, echo=FALSE}
 # Function to identify zero-variance columns
 find_zero_variance <- function(df) {
   zv_cols <- c()
@@ -445,7 +445,7 @@ These columns provide no predictive value since every observation has the same v
 **Step 8: Handle Near Zero-Variance Predictors**
 
 
-```{r step8_near_zero_variance, echo=TRUE}
+```{r step8_near_zero_variance, echo=FALSE}
 # Function to find near-zero variance columns
 # A column is NZV if one value dominates (e.g., >95% of values)
 find_near_zero_variance <- function(df, threshold = 0.95) {
@@ -484,7 +484,7 @@ cat("Near-zero variance columns (>95% one value):\n")
 print(nzv_cols)
 ```
 
-```{r step8_handle_nzv, echo=TRUE}
+```{r step8_handle_nzv, echo=FALSE}
 # Decision: Flag NZV columns but don't remove yet
 # These may still be useful predictors depending on modeling goals
 nzv_variables <- nzv_cols$Variable
@@ -519,7 +519,7 @@ Near-zero variance columns identified (>95% one value):
 **Step 9: Remove Redundant Columns and Linear Combination Columns**
 
 
-```{r step9_redundant, echo=TRUE}
+```{r step9_redundant, echo=FALSE}
 # Check for redundant categorical columns (State_Name vs State_Loc)
 cat("--- Checking State_Name vs State_Loc redundancy ---\n")
 if("State_Name" %in% names(FFdf) && "State_Loc" %in% names(FFdf)) {
@@ -571,7 +571,7 @@ if(length(numeric_vars) > 1) {
 }
 ```
 
-```{r step9_correlation_plot, echo=TRUE, fig.width=10, fig.height=8}
+```{r step9_correlation_plot, echo=FALSE, fig.width=10, fig.height=8}
 # Visualize correlation matrix for numeric variables
 if(length(numeric_vars) > 2) {
   # Subset to variables with fewer missing values for cleaner plot
@@ -587,7 +587,7 @@ if(length(numeric_vars) > 2) {
 }
 ```
 
-```{r step9_handle_multicollinearity, echo=TRUE}
+```{r step9_handle_multicollinearity, echo=FALSE}
 # Address multicollinearity based on correlation matrix analysis
 cat("=== MULTICOLLINEARITY ANALYSIS ===\n\n")
 
@@ -638,7 +638,7 @@ Based on the correlation matrix analysis (actual results from output above):
 
 **Step 10: Search for Outliers and Initial Search for Missing Values**
 
-```{r step10_outliers, echo=TRUE, fig.width=10, fig.height=8}
+```{r step10_outliers, echo=FALSE, fig.width=10, fig.height=8}
 # Boxplots for key numeric variables to identify outliers
 par(mfrow = c(2, 3))
 
@@ -669,7 +669,7 @@ boxplot(FFdf$DistA, main = "DistA", col = "lightblue", outline = TRUE)
 par(mfrow = c(1, 1))
 ```
 
-```{r step10_missing_assessment, echo=TRUE, fig.width=10, fig.height=6}
+```{r step10_missing_assessment, echo=FALSE, fig.width=10, fig.height=6}
 # Comprehensive missing data assessment
 cat("=== MISSING DATA ASSESSMENT ===\n\n")
 
@@ -694,7 +694,7 @@ print(na_summary)
 
 ```
 
-```{r step10_outlier_decisions, echo=TRUE}
+```{r step10_outlier_decisions, echo=FALSE}
 # Document outlier decisions
 cat("\n=== OUTLIER DECISIONS ===\n\n")
 
@@ -727,7 +727,7 @@ cat("Created outlier flag variables: Flag_Tenure_High, Flag_Survey_Invalid\n")
 **Step 11: Sanity Check Using Decision Tree (1 to 2 splits)**
 
 
-```{r step11_decision_tree, echo=TRUE, fig.width=10, fig.height=8}
+```{r step11_decision_tree, echo=FALSE, fig.width=10, fig.height=8}
 # Prepare data for decision tree
 # Exclude ID columns, flag variables, and high-cardinality variables
 exclude_from_tree <- c("ID", "Cust_ID", "Flag_Tenure_High", "Flag_Survey_Invalid",
@@ -767,7 +767,7 @@ if(length(sanity_tree$variable.importance) > 0) {
 }
 ```
 
-```{r step11_tree_analysis, echo=TRUE}
+```{r step11_tree_analysis, echo=FALSE}
 # Analyze tree results
 cat("\n=== SANITY CHECK ANALYSIS ===\n\n")
 
@@ -807,7 +807,7 @@ Top Variable Importance:
 
 ## Summary of Steps 6-11 (Data Cleaning Complete)
 
-```{r final_summary, echo=TRUE}
+```{r final_summary, echo=FALSE}
 cat("=== DATA CLEANING SUMMARY (Steps 6-11) ===\n\n")
 
 cat("Step 6 - Handle Categorical Variables:\n")
@@ -856,4 +856,461 @@ cat("\nCleaned dataset saved to: FFdf_cleaned.csv\n")
 | 10 | Survey_Comp > 1 | Investigate scale/cap values at 1 |
 | 10 | Missing data patterns | Address in Missing Data phase (Class 5+) |
 | 11 | Tree predictors | **RESOLVED:** Using Region variable instead of State_Name |
+
+---
+
+## Class 7: Handling Missing Data - Steps 1-4
+
+**Step 1: Identify Missing Data**
+
+```{r md_step1_identify_missing, echo=TRUE}
+cat("=== STEP 1: IDENTIFY MISSING DATA ===\n\n")
+
+# Start Missing Data workflow from cleaned dataset
+MDdf <- FFdf
+
+missing_counts_step1 <- colSums(is.na(MDdf))
+missing_counts_step1 <- sort(missing_counts_step1[missing_counts_step1 > 0], decreasing = TRUE)
+missing_table_step1 <- data.frame(
+  Variable = names(missing_counts_step1),
+  Missing_Count = as.numeric(missing_counts_step1),
+  Missing_Pct = round(as.numeric(missing_counts_step1) / nrow(MDdf) * 100, 2)
+)
+
+cat("Variables with missing values:", length(missing_counts_step1), "\n")
+cat("Total missing cells:", sum(is.na(MDdf)), "\n\n")
+print(missing_table_step1)
+
+# Optional pattern table from mice
+md_pattern_step1 <- tryCatch(mice::md.pattern(MDdf, plot = FALSE), error = function(e) NULL)
+if(!is.null(md_pattern_step1)) {
+  cat("\nTop missingness patterns (mice::md.pattern):\n")
+  print(head(md_pattern_step1, 8))
+}
+```
+
+**Step 1 Results and Interpretation:**
+
+- Variables with missing values: **`r length(missing_counts_step1)`**
+- Total missing cells: **`r format(sum(is.na(MDdf)), big.mark = ",")`**
+- Highest-missing variables are concentrated in demographic/profile fields (for example: `r paste(names(head(missing_counts_step1, 5)), collapse = ", ")`)
+- Interpretation: missingness is substantial and not isolated to a single field, so a structured missing-data workflow is required.
+
+**Step 2: Mark Missing Data**
+
+```{r md_step2_mark_missing, echo=TRUE}
+cat("=== STEP 2: MARK MISSING DATA ===\n\n")
+
+# Create indicator columns for variables with missingness
+vars_with_na_step2 <- names(MDdf)[colSums(is.na(MDdf)) > 0]
+indicator_names_step2 <- paste0(vars_with_na_step2, "_Missing")
+
+for(v in vars_with_na_step2) {
+  MDdf[[paste0(v, "_Missing")]] <- ifelse(is.na(MDdf[[v]]), 1, 0)
+}
+
+cat("Missingness indicators created:", length(vars_with_na_step2), "\n")
+cat("Example indicators:\n")
+print(head(indicator_names_step2, 10))
+cat("\nIdentifier columns retained:",
+    all(c("ID", "Cust_ID") %in% names(MDdf)), "\n")
+```
+
+**Step 2 Results and Interpretation:**
+
+- Missingness indicators created: **`r length(vars_with_na_step2)`**
+- Indicator columns preserve traceability between original NA values and imputed values.
+- Interpretation: this supports mechanism testing (MCAR/MAR checks) and sensitivity analysis later.
+
+**Step 3: Clean Up Obvious Mistakes**
+
+```{r md_step3_cleanup_mistakes, echo=TRUE}
+cat("=== STEP 3: CLEAN UP OBVIOUS MISTAKES ===\n\n")
+
+# Standardize text fields and convert blank strings to NA
+before_missing_step3 <- sum(is.na(MDdf))
+added_na_from_blanks_step3 <- 0
+
+text_cols <- names(MDdf)[sapply(MDdf, function(x) is.factor(x) || is.character(x))]
+factor_cols <- names(MDdf)[sapply(MDdf, is.factor)]
+
+for(col in text_cols) {
+  x <- trimws(as.character(MDdf[[col]]))
+  blank_idx <- !is.na(x) & x == ""
+  added_na_from_blanks_step3 <- added_na_from_blanks_step3 + sum(blank_idx)
+  x[blank_idx] <- NA
+  if(is.factor(MDdf[[col]])) {
+    MDdf[[col]] <- as.factor(x)
+  } else {
+    MDdf[[col]] <- x
+  }
+}
+
+
+
+after_missing_step3 <- sum(is.na(MDdf))
+net_new_missing_step3 <- after_missing_step3 - before_missing_step3
+
+cat("Blank strings converted to NA:", added_na_from_blanks_step3, "\n")
+cat("Marital 'U' converted to NA:", marital_u_to_na_step3, "\n")
+cat("Net change in missing cells:", net_new_missing_step3, "\n")
+cat("Total missing cells after cleanup:", after_missing_step3, "\n")
+
+# Keep factors compact after cleanup
+for(col in factor_cols) {
+  MDdf[[col]] <- droplevels(MDdf[[col]])
+}
+
+cat("Whitespace cleanup applied to factor columns:", length(factor_cols), "\n")
+if("Marital" %in% names(MDdf)) {
+  cat("Marital levels after cleanup:\n")
+  print(levels(MDdf$Marital))
+}
+```
+
+**Step 3 Results and Interpretation:**
+
+- Factor columns standardized: **`r length(factor_cols)`**
+- Blank strings converted to NA: **`r added_na_from_blanks_step3`**
+- Marital "U" converted to NA: **`r marital_u_to_na_step3`**
+- Marital levels after cleanup: **`r if("Marital" %in% names(MDdf)) paste(levels(MDdf$Marital), collapse = ", ") else "Marital not present"`**
+- Interpretation: obvious coding issues are cleaned and unknown categories are consistently represented as missing for downstream imputation decisions.
+
+**Step 4: Make Decisions on Rows/Columns**
+
+```{r md_step4_row_col_decisions, echo=TRUE}
+cat("=== STEP 4: ROW/COLUMN DECISIONS ===\n\n")
+
+# Missingness by column
+na_pct_step4 <- colSums(is.na(MDdf)) / nrow(MDdf)
+high_missing_cols_step4 <- names(na_pct_step4[na_pct_step4 > 0.40])
+extreme_missing_cols_step4 <- names(na_pct_step4[na_pct_step4 > 0.65])
+
+cat("Columns > 40% missing:", length(high_missing_cols_step4), "\n")
+if(length(high_missing_cols_step4) > 0) {
+  print(high_missing_cols_step4)
+} else {
+  cat("No columns exceed 40% missingness threshold.\n")
+}
+
+# Missingness by row
+row_missing_pct_step4 <- rowSums(is.na(MDdf)) / ncol(MDdf)
+rows_high_missing_step4 <- which(row_missing_pct_step4 > 0.50)
+
+cat("\nRows > 50% missing:", length(rows_high_missing_step4), "\n")
+
+# Mark (do not delete) for modeling decisions
+excluded_cols_md_step4 <- unique(c("ID", "Cust_ID", extreme_missing_cols_step4))
+cat("Columns marked for potential exclusion from modeling (not deleted):\n")
+print(excluded_cols_md_step4)
+cat("Decision: mark rows/columns for modeling strategy; avoid hard deletes at this stage.\n")
+```
+
+**Step 4 Results and Interpretation:**
+
+- Columns above 40% missingness: **`r length(high_missing_cols_step4)`**
+- Rows above 50% missingness: **`r length(rows_high_missing_step4)`**
+- Columns marked (not deleted): **`r length(excluded_cols_md_step4)`**
+- Interpretation: column-level missingness is the dominant issue; variables are flagged for strategy decisions rather than removed outright.
+
+---
+
+## Class 8: Handling Missing Data - Step 5
+
+**Step 5: Assess Missingness Patterns**
+
+```{r md_step5_missing_patterns, echo=TRUE, fig.width=10, fig.height=6}
+cat("=== STEP 5: ASSESS MISSINGNESS PATTERNS ===\n\n")
+
+# Pairwise missingness summary
+missing_matrix_step5 <- is.na(MDdf)
+cat("Any complete rows:", any(rowSums(missing_matrix_step5) == 0), "\n")
+cat("Rows with at least one missing value:", sum(rowSums(missing_matrix_step5) > 0), "\n")
+
+# Bar chart of top missing variables
+na_count_step5 <- sort(colSums(missing_matrix_step5), decreasing = TRUE)
+na_count_step5 <- na_count_step5[na_count_step5 > 0]
+
+if(length(na_count_step5) > 0) {
+  top_na_step5 <- head(na_count_step5, 15)
+  barplot(top_na_step5,
+          las = 2,
+          col = "steelblue",
+          main = "Top Variables by Missing Count",
+          ylab = "Missing Count")
+} else {
+  plot.new()
+  text(0.5, 0.5, "No missing values detected")
+}
+
+cat("\n=== MCAR / MAR / MNAR ASSESSMENT (PRACTICAL) ===\n\n")
+
+# Practical mechanism check:
+# - Manual association tests + simple decision tree used for judgment (per course guidance)
+# - If missingness relates to observed data -> likely MAR
+# - If no relationships detected -> could be MCAR
+# - MNAR is flagged as possible for sensitive/high-missing variables, then SME validated
+
+vars_with_na_step5 <- names(MDdf)[colSums(is.na(MDdf)) > 0]
+assessment_step5 <- data.frame(
+  Variable = character(),
+  Missing_Count = integer(),
+  Missing_Pct = numeric(),
+  Manual_Tests_Run = integer(),
+  Significant_Assoc = integer(),
+  Tree_Has_Splits = character(),
+  Likely_Mechanism = character(),
+  MNAR_Risk = character(),
+  Judgement_Basis = character(),
+  stringsAsFactors = FALSE
+)
+
+# Variables where nonresponse may depend on latent/unobserved value (domain risk)
+mnar_sensitive_vars <- c(
+  "Educational_Level", "Favorite_Caps_Player", "Favorite_Sport",
+  "HouseHold_Income_True", "Job_Sector", "Mode_Of_Transport",
+  "Net_Worth_True", "Team_B_STH", "Team_C_STH"
+)
+
+tree_predictors_step5 <- intersect(c(
+  "Age", "Tenure", "Total_Spent", "NumSeats", "Survey_Comp", "DistA",
+  "Sex", "Marital", "Account_Type", "Region", "Rep_Visits", "Rep_Calls"
+), names(MDdf))
+
+for(v in vars_with_na_step5) {
+  miss_ind <- is.na(MDdf[[v]])
+  if(sum(miss_ind) == 0 || sum(!miss_ind) == 0) next
+
+  tests_run <- 0
+  sig_assoc <- 0
+
+  # Manual tests against a stable predictor set
+  candidate_preds <- setdiff(tree_predictors_step5, v)
+
+  for(p in candidate_preds) {
+    pred <- MDdf[[p]]
+    if(all(is.na(pred))) next
+    ok <- !is.na(pred)
+    if(sum(ok) < 30) next
+
+    pval <- NA
+    if(is.numeric(pred)) {
+      # Numeric predictor vs missingness group
+      if(length(unique(miss_ind[ok])) == 2) {
+        pval <- tryCatch(wilcox.test(pred[ok] ~ miss_ind[ok])$p.value, error = function(e) NA)
+      }
+    } else if(is.factor(pred) || is.character(pred) || is.logical(pred)) {
+      # Categorical predictor vs missingness group
+      tab <- table(miss_ind[ok], pred[ok])
+      if(all(dim(tab) >= c(2, 2))) {
+        pval <- tryCatch(suppressWarnings(chisq.test(tab)$p.value), error = function(e) NA)
+      }
+    }
+
+    if(!is.na(pval)) {
+      tests_run <- tests_run + 1
+      if(pval < 0.05) sig_assoc <- sig_assoc + 1
+    }
+  }
+
+  # Decision tree check for non-random missingness structure
+  tree_has_splits <- FALSE
+  tree_df <- MDdf[, c(setdiff(tree_predictors_step5, v)), drop = FALSE]
+  if(ncol(tree_df) > 0) {
+    tree_df$miss_flag <- as.factor(ifelse(is.na(MDdf[[v]]), "Missing", "Observed"))
+    tree_df <- tree_df[complete.cases(tree_df), , drop = FALSE]
+    if(nrow(tree_df) >= 200 && length(unique(tree_df$miss_flag)) == 2) {
+      tree_fit <- tryCatch(
+        rpart(miss_flag ~ ., data = tree_df, method = "class",
+              control = rpart.control(maxdepth = 2, minsplit = 100, cp = 0.01)),
+        error = function(e) NULL
+      )
+      if(!is.null(tree_fit) && nrow(tree_fit$frame) > 1) {
+        tree_has_splits <- TRUE
+      }
+    }
+  }
+
+  missing_pct <- round(mean(miss_ind) * 100, 2)
+
+  mnar_risk <- FALSE
+  judgement_basis <- "Observed-data checks only"
+  if(v %in% mnar_sensitive_vars && missing_pct >= 40) {
+    mnar_risk <- TRUE
+    judgement_basis <- "Sensitive/self-report field with high missingness"
+  }
+
+  mech <- if(mnar_risk) {
+    "Possible MNAR (needs SME validation)"
+  } else if(sig_assoc > 0 || tree_has_splits) {
+    "Likely MAR (observed-data relationship)"
+  } else if(tests_run > 0) {
+    "Could be MCAR"
+  } else {
+    "Insufficient evidence"
+  }
+
+  assessment_step5 <- rbind(assessment_step5, data.frame(
+    Variable = v,
+    Missing_Count = sum(miss_ind),
+    Missing_Pct = missing_pct,
+    Manual_Tests_Run = tests_run,
+    Significant_Assoc = sig_assoc,
+    Tree_Has_Splits = ifelse(tree_has_splits, "Yes", "No"),
+    Likely_Mechanism = mech,
+    MNAR_Risk = ifelse(mnar_risk, "Yes", "No"),
+    Judgement_Basis = judgement_basis,
+    stringsAsFactors = FALSE
+  ))
+}
+
+if(nrow(assessment_step5) > 0) {
+  assessment_step5 <- assessment_step5[order(assessment_step5$Missing_Pct, decreasing = TRUE), ]
+  print(assessment_step5)
+  cat("\nMechanism counts:\n")
+  mechanism_counts_step5 <- table(assessment_step5$Likely_Mechanism)
+  print(mechanism_counts_step5)
+
+  cat("\nInterpretation guide:\n")
+  cat("- MCAR: no detected relationship between missingness and observed variables.\n")
+  cat("- MAR: missingness related to observed data (manual tests and/or tree split patterns).\n")
+  cat("- MNAR: flagged as POSSIBLE for sensitive/high-missing fields; confirm with SME and sensitivity analysis.\n")
+  cat("- Course note: judgment is prioritized over strict significance in this stage.\n")
+} else {
+  cat("No variables with missing values to assess.\n")
+}
+```
+
+**Step 5 Results and Interpretation:**
+
+- Rows with at least one missing value: **`r sum(rowSums(is.na(MDdf)) > 0)`** of **`r nrow(MDdf)`**
+- Mechanism calls from assessment table:
+  - Possible MNAR (needs SME validation): **`r if(exists("assessment_step5")) sum(assessment_step5$Likely_Mechanism == "Possible MNAR (needs SME validation)") else 0`**
+  - Likely MAR (observed-data relationship): **`r if(exists("assessment_step5")) sum(assessment_step5$Likely_Mechanism == "Likely MAR (observed-data relationship)") else 0`**
+  - Could be MCAR: **`r if(exists("assessment_step5")) sum(assessment_step5$Likely_Mechanism == "Could be MCAR") else 0`**
+  - Insufficient evidence: **`r if(exists("assessment_step5")) sum(assessment_step5$Likely_Mechanism == "Insufficient evidence") else 0`**
+- Interpretation: this step explicitly accounts for **MCAR/MAR/MNAR** using manual checks, a small decision-tree screen, and domain judgment.
+
+---
+
+## Class 9: Implement Basic Imputation Methods - Step 6
+
+**Step 6: Apply Simple Imputation Techniques**
+
+```{r md_step6_basic_imputation, echo=TRUE}
+cat("=== STEP 6: APPLY SIMPLE TECHNIQUES ===\n\n")
+
+# Create simple-imputation working copy (do not overwrite MDdf)
+MDdf_simple <- MDdf
+
+# Missingness tiers for simple-technique decisions
+missing_pct_step6 <- colSums(is.na(MDdf_simple)) / nrow(MDdf_simple)
+small_missing_vars_step6 <- names(missing_pct_step6[missing_pct_step6 > 0 & missing_pct_step6 <= 0.10])
+moderate_missing_vars_step6 <- names(missing_pct_step6[missing_pct_step6 > 0.10 & missing_pct_step6 <= 0.40])
+high_missing_vars_step6 <- names(missing_pct_step6[missing_pct_step6 > 0.40])
+
+cat("Small-missing vars (<=10%):", length(small_missing_vars_step6), "\n")
+cat("Moderate-missing vars (10-40%):", length(moderate_missing_vars_step6), "\n")
+cat("High-missing vars (>40%):", length(high_missing_vars_step6), "\n\n")
+
+# Apply simple methods first to low-missing variables
+mode_value_step6 <- function(x) {
+  ux <- unique(x[!is.na(x)])
+  ux[which.max(tabulate(match(x, ux)))]
+}
+
+imputation_log_step6 <- data.frame(
+  Variable = character(),
+  Missing_Before = integer(),
+  Method = character(),
+  Missing_After = integer(),
+  stringsAsFactors = FALSE
+)
+
+vars_for_simple_step6 <- unique(c(
+  small_missing_vars_step6,
+  intersect(moderate_missing_vars_step6,
+            c("DistA", "Age", "Marital", "Rep_Name", "Sex", "Tenure", "Rep_Visits", "Rep_Calls", "Num_Children"))
+))
+
+for(v in vars_for_simple_step6) {
+  before_n <- sum(is.na(MDdf_simple[[v]]))
+  if(before_n == 0) next
+
+  method_used <- ""
+  if(is.numeric(MDdf_simple[[v]])) {
+    fill <- median(MDdf_simple[[v]], na.rm = TRUE)
+    MDdf_simple[[v]][is.na(MDdf_simple[[v]])] <- fill
+    method_used <- "Median"
+  } else if(is.factor(MDdf_simple[[v]]) || is.character(MDdf_simple[[v]])) {
+    fill <- mode_value_step6(MDdf_simple[[v]])
+    MDdf_simple[[v]][is.na(MDdf_simple[[v]])] <- fill
+    if(is.factor(MDdf_simple[[v]])) MDdf_simple[[v]] <- droplevels(MDdf_simple[[v]])
+    method_used <- "Mode"
+  }
+
+  after_n <- sum(is.na(MDdf_simple[[v]]))
+  imputation_log_step6 <- rbind(imputation_log_step6, data.frame(
+    Variable = v,
+    Missing_Before = before_n,
+    Method = method_used,
+    Missing_After = after_n,
+    stringsAsFactors = FALSE
+  ))
+}
+
+remaining_missing_by_var_step6 <- sort(colSums(is.na(MDdf_simple)), decreasing = TRUE)
+remaining_missing_by_var_step6 <- remaining_missing_by_var_step6[remaining_missing_by_var_step6 > 0]
+
+cat("Simple methods applied to variables:", length(vars_for_simple_step6), "\n")
+cat("Variables with remaining missingness:", length(remaining_missing_by_var_step6), "\n")
+cat("Total remaining missing values:", sum(is.na(MDdf_simple)), "\n\n")
+
+if(nrow(imputation_log_step6) > 0) {
+  cat("Imputation log (simple methods):\n")
+  print(imputation_log_step6)
+}
+
+if(length(remaining_missing_by_var_step6) > 0) {
+  cat("\nTop remaining missing variables (for complex methods/MICE later):\n")
+  print(head(remaining_missing_by_var_step6, 10))
+}
+
+cat("\nNote: Step 6 applies simple univariate methods first; remaining high-missing variables are intentionally left for complex imputation.\n")
+```
+
+**Step 6 Results and Interpretation:**
+
+- Variables handled with simple methods: **`r nrow(imputation_log_step6)`**
+- Remaining missing values after simple techniques: **`r format(sum(is.na(MDdf_simple)), big.mark = ",")`**
+- Variables still requiring complex methods: **`r length(remaining_missing_by_var_step6)`**
+- Interpretation: simple techniques are applied where appropriate (low/moderate missingness), while high-missing variables are preserved for advanced imputation.
+
+### Missing Data Steps 1-6 Summary
+
+```{r md_steps_summary, echo=FALSE}
+cat("=== MISSING DATA SUMMARY (Steps 1-6) ===\n\n")
+cat("Step 1: Missing values identified -", length(missing_counts_step1), "variables with NA and",
+    format(sum(is.na(MDdf)), big.mark = ","), "missing cells.\n")
+cat("Step 2: Missingness indicator variables created -", length(vars_with_na_step2), "indicator columns.\n")
+cat("Step 3: Obvious coding issues cleaned -", added_na_from_blanks_step3,
+    "blank values and", marital_u_to_na_step3, "Marital='U' values converted to NA.\n")
+cat("Step 4: Row/column decisions marked -", length(high_missing_cols_step4),
+    "columns >40% missing and", length(rows_high_missing_step4), "rows >50% missing (no hard deletes).\n")
+cat("Step 5: Missingness mechanism assessed -",
+    sum(assessment_step5$Likely_Mechanism == "Possible MNAR (needs SME validation)"), "possible MNAR,",
+    sum(assessment_step5$Likely_Mechanism == "Likely MAR (observed-data relationship)"), "likely MAR,",
+    sum(assessment_step5$Likely_Mechanism == "Could be MCAR"), "could be MCAR.\n")
+cat("Step 6: Simple techniques applied -", nrow(imputation_log_step6),
+    "variables imputed with simple methods; remaining missing values:",
+    format(sum(is.na(MDdf_simple)), big.mark = ","), ".\n")
+```
+
+# Keep a draft modeling copy after simple techniques
+```{r md_export_draft_modeling_file, echo=FALSE}
+MDdf_draft_modeling <- MDdf_simple
+cat("Draft modeling file created in-session: MDdf_draft_modeling\n")
+cat("Dimensions:", nrow(MDdf_draft_modeling), "x", ncol(MDdf_draft_modeling), "\n")
+cat("Remaining missing values in draft modeling file:", sum(is.na(MDdf_draft_modeling)), "\n")
+```
 
