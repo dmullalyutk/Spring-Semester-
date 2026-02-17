@@ -1,0 +1,59 @@
+================================================================================
+CONTRIBUTION STATEMENT - Group Assignment 1
+================================================================================
+
+Group Number:
+Course:
+Assignment: Incremental Learning on Large Data
+
+Team Members and Contributions
+------------------------------
+1. Name:
+   Student ID:
+   Contributions:
+   - 
+   - 
+   - 
+
+2. Name:
+   Student ID:
+   Contributions:
+   - 
+   - 
+   - 
+
+3. Name:
+   Student ID:
+   Contributions:
+   - 
+   - 
+   - 
+
+4. Name:
+   Student ID:
+   Contributions:
+   - 
+   - 
+   - 
+
+Work Distribution Summary
+-------------------------
+- Model implementation:
+- Data pipeline and incremental training:
+- Evaluation and analysis:
+- Plots and visualization:
+- Runbook and packaging:
+
+Verification
+------------
+We confirm that all listed team members contributed to this assignment and that
+the contributions listed above accurately reflect each member's work.
+
+Date:
+Signatures (or typed names):
+- 
+- 
+- 
+- 
+
+================================================================================

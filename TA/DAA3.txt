@@ -1,0 +1,19 @@
+This would be an appropriate cropped screenshot
+
+Missing title 
+
+Missing axis titles
+
+Missing data table 
+
+Missing Legend 
+
+Missing data labels 
+
+Missing numerical evidence 
+
+
+Problem Students: 
+William Chase Barker 
+
+Data Table supposed to be part of pivot table graph, see example 
