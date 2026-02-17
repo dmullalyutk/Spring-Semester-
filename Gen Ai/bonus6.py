@@ -1,6 +1,7 @@
 # Run the following for use in Q1 and Q2:
 
-from transformers import T5ForConditionalGeneration, T5Tokenizer, TextStreamer, pipeline
+from transformers import T5ForConditionalGeneration, T5Tokenizer, pipeline
+from transformers.pipelines import PIPELINE_REGISTRY
 
 model = T5ForConditionalGeneration.from_pretrained(
     "google/flan-t5-base",
@@ -8,13 +9,22 @@ model = T5ForConditionalGeneration.from_pretrained(
 
 tokenizer = T5Tokenizer.from_pretrained("google/flan-t5-base")
 
-generator = pipeline(
-    'text2text-generation',
-    model = model,
-    tokenizer = tokenizer,
-    max_new_tokens = 50,
-    num_beams = 1,
-    do_sample = True)
+supported_tasks = PIPELINE_REGISTRY.get_supported_tasks()
+task = "text2text-generation" if "text2text-generation" in supported_tasks else "text-generation"
+
+if task == "text-generation":
+    generator = pipeline(
+        task,
+        model=model,
+        tokenizer=tokenizer,
+        return_full_text=False,
+    )
+else:
+    generator = pipeline(
+        task,
+        model=model,
+        tokenizer=tokenizer,
+    )
 
 
 ############ Question 1:
@@ -37,8 +47,7 @@ protein-enhanced versions. Ingredients have evolved from its original formulatio
 adapt to changing consumer preferences and nutritional guidelines. Despite fluctuations
 in bar size and controversies around health and advertising, Snickers remains a prominent
 snack worldwide, sponsoring significant sporting events and introducing notable marketing
-campaigns.
-"""
+campaigns."""
 
 #Answer:
 q1_prompt = f"""

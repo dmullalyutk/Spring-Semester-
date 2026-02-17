@@ -1,0 +1,213 @@
+---
+title: "Untitled"
+author: "Davd"
+date: "2026-02-17"
+output: html_document
+---
+
+```{r}
+library(readxl)
+library(dplyr)
+library(lubridate)
+library(janitor)
+
+# 1) Read + clean names
+df <- read_excel("Meters Data 2024.xlsx",
+                 sheet = "Emerald Pickups",
+                 range = "A1:P50074") %>%
+  clean_names()
+
+# 2) Convert month name + quarter text, create date + factors
+df <- df %>%
+  mutate(
+    year = as.integer(date_year),
+
+    # month name ("November") -> 11
+    month_num = match(trimws(date_month), month.name),
+
+    # "Qtr 4" -> 4
+    quarter_num = as.integer(gsub("[^0-9]", "", date_quarter)),
+
+    # year-month date (first of month)
+    ym = make_date(year, month_num, 1),
+
+    # factors for modeling
+    month = factor(trimws(date_month), levels = month.name, ordered = TRUE),
+    quarter = factor(quarter_num, levels = 1:4)
+  )
+
+# 3) Quick checks
+stopifnot(!anyNA(df$ym))
+table(df$month, useNA = "ifany")
+table(df$quarter, useNA = "ifany")
+
+name_lookup <- df %>%
+  mutate(customer_name_clean = trimws(customer_name)) %>%
+  group_by(customer_id, customer_name_clean) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(customer_id) %>%
+  slice_max(n, with_ties = FALSE) %>%
+  transmute(customer_id, customer_name = customer_name_clean)
+
+# attach canonical name back onto your data
+df2 <- df %>%
+  select(-customer_name) %>%
+  left_join(name_lookup, by = "customer_id")
+
+stopifnot(!anyNA(df2$month_num))
+
+df_monthly <- df2 %>%
+  group_by(customer_id, ym, year, month, quarter) %>%
+  summarise(
+    customer_name = first(customer_name),   # carry name along, don't group by it
+    pickups = sum(pickups, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+
+
+
+
+```
+
+
+
+```{r}
+get_pickups <- function(data, customer_id_value, year_value, month_value) {
+  
+  # standardize month input
+  month_value <- tools::toTitleCase(tolower(month_value))
+  
+  result <- data %>%
+    filter(
+      customer_id == customer_id_value,
+      year == year_value,
+      as.character(month) == month_value
+    )
+  
+  if (nrow(result) == 0) {
+    return(paste(
+      "No pickups for customer",
+      customer_id_value,
+      "in",
+      month_value,
+      year_value
+    ))
+  }
+  
+  total <- sum(result$pickups, na.rm = TRUE)
+  
+  return(paste(
+    "Customer",
+    customer_id_value,
+    "had",
+    total,
+    "pickups in",
+    month_value,
+    year_value
+  ))
+}
+
+
+```
+
+
+```{r}
+get_pickups(df_monthly, 'ALA00330', 2024, "November")
+
+```
+
+```{r}
+library(readxl)
+library(dplyr)
+library(janitor)
+
+meters <- read_excel("Meters Data 2024.xlsx", sheet = "Combined Meter Data") %>%
+  clean_names()
+
+meters_one <- meters %>%
+  transmute(
+    customer_id = trimws(as.character(emerald_customer_id)),
+    data_year = suppressWarnings(as.integer(data_year)),
+    ownership,
+    ba_code,
+    residential,
+    commercial,
+    industrial,
+    transportation,
+    total_meters,
+    meter_state = emerald_customer_state
+  ) %>%
+  arrange(customer_id, desc(data_year), desc(total_meters)) %>%
+  distinct(customer_id, .keep_all = TRUE)
+
+df_monthly2 <- df_monthly %>%
+  mutate(customer_id = trimws(as.character(customer_id)))
+
+df_model_all <- df_monthly2 %>%
+  left_join(meters_one, by = "customer_id", relationship = "many-to-one") %>%
+  mutate(has_meter_data = !is.na(total_meters))
+
+df_model <- df_model_all %>% filter(has_meter_data)
+
+mean(is.na(df_model_all$total_meters))
+
+library(dplyr)
+
+cust_match <- df_model_all %>%
+  group_by(customer_id) %>%
+  summarise(has_meter = any(!is.na(total_meters)), .groups = "drop")
+
+mean(!cust_match$has_meter)  # fraction of customers missing
+
+
+
+
+df_model_all %>%
+  mutate(has_meter = !is.na(total_meters)) %>%
+  group_by(customer_id) %>%
+  summarise(
+    has_meter = any(has_meter),
+    n_months = n(),
+    .groups = "drop"
+  ) %>%
+  group_by(has_meter) %>%
+  summarise(
+    customers = n(),
+    avg_months = mean(n_months),
+    median_months = median(n_months),
+    .groups = "drop"
+  )
+
+
+```
+```{r}
+df_2025 <- df_model %>%
+  filter(year == 2025)
+set.seed(123)
+
+customer_ids <- unique(df_2025$customer_id)
+
+train_ids <- sample(customer_ids, size = 0.7 * length(customer_ids))
+
+train <- df_2025 %>% filter(customer_id %in% train_ids)
+test  <- df_2025 %>% filter(!customer_id %in% train_ids)
+
+
+model_lm <- lm(
+  pickups ~ month  +
+            residential + commercial +
+            industrial + transportation +
+            ownership + ba_code,
+  data = train
+)
+
+summary(model_lm)
+
+
+```
+```{r}
+
+```
+
+
