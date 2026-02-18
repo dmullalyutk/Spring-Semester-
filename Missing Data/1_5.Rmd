@@ -857,3 +857,994 @@ cat("\nCleaned dataset saved to: FFdf_cleaned.csv\n")
 | 10 | Missing data patterns | Address in Missing Data phase (Class 5+) |
 | 11 | Tree predictors | **RESOLVED:** Using Region variable instead of State_Name |
 
+---
+
+## Missing Data Analysis: Steps 1-5
+
+We join this program already in progress with a cleaned flat file (FFdf). The Missing Data process follows a separate set of steps from Data Cleaning. These steps prepare the dataset for imputation (Steps 6-7 of the MD process, covered later).
+
+**Missing Data Steps:**
+
+1. Identify missing data
+2. "Mark" missing data (create indicator variables)
+3. Clean up any obvious mistakes
+4. Make easy decisions on Rows/Columns
+5. Assess missingness patterns (MCAR vs MAR)
+
+---
+
+### MD Step 1: Identify Missing Data
+
+We summarize the extent and location of missing values across all variables in the cleaned flat file. This uses `is.na()`, `colSums()`, `md.pattern()` from the `mice` package, and `aggr()` from the `VIM` package.
+
+```{r md_step1_identify, echo=TRUE, fig.width=10, fig.height=8}
+# Rename to MDdf to follow course convention
+MDdf <- FFdf
+
+cat("=== MISSING DATA IDENTIFICATION ===\n")
+cat("Dataset:", nrow(MDdf), "rows x", ncol(MDdf), "columns\n")
+cat("Total missing values:", sum(is.na(MDdf)), "\n")
+cat("Total cells:", nrow(MDdf) * ncol(MDdf), "\n")
+cat("Overall missing %:", round(sum(is.na(MDdf)) / (nrow(MDdf) * ncol(MDdf)) * 100, 2), "%\n\n")
+
+# Missing values by column - sorted descending
+na_counts <- colSums(is.na(MDdf))
+na_cols <- na_counts[na_counts > 0]
+na_sorted <- sort(na_cols, decreasing = TRUE)
+
+# Create a summary table
+missing_summary <- data.frame(
+  Variable = names(na_sorted),
+  Missing_Count = as.numeric(na_sorted),
+  Missing_Pct = round(as.numeric(na_sorted) / nrow(MDdf) * 100, 1),
+  Present_Count = nrow(MDdf) - as.numeric(na_sorted)
+)
+
+cat("=== COLUMNS WITH MISSING DATA ===\n")
+print(missing_summary, row.names = FALSE)
+
+# Flextable for formatted output
+flextable(missing_summary) %>%
+  set_header_labels(Variable = "Variable", Missing_Count = "Missing (n)",
+                    Missing_Pct = "Missing (%)", Present_Count = "Present (n)") %>%
+  colformat_double(j = "Missing_Pct", digits = 1) %>%
+  autofit()
+```
+
+```{r md_step1_pattern, echo=TRUE, fig.width=12, fig.height=8}
+# md.pattern from mice - shows patterns of missingness across variables
+cat("=== MISSING DATA PATTERN (mice::md.pattern) ===\n")
+md.pattern(MDdf, plot = TRUE, rotate.names = TRUE)
+```
+
+```{r md_step1_aggr, echo=TRUE, fig.width=12, fig.height=8}
+# VIM aggr plot - visual aggregation of missing data
+aggr(MDdf,
+     col = c("steelblue", "red"),
+     numbers = TRUE,
+     sortVars = TRUE,
+     labels = names(MDdf),
+     cex.axis = 0.5,
+     gap = 3,
+     ylab = c("Proportion Missing", "Pattern"))
+```
+
+**MD Step 1 Observations:**
+
+- **Total missing:** 67,997 values out of 557,373 cells (12.2% overall)
+- **High missingness (>50%):** 7 variables from the Customer table are all missing at exactly 70.0% (6,612 values each): Educational_Level, Favorite_Caps_Player, Favorite_Sport, Job_Sector, Mode_Of_Transport, Team_B_STH, Team_C_STH. This identical count strongly suggests these are missing as a block -- likely from customers who did not complete a supplemental survey.
+- **Net_Worth_True (61.0%)** and **HouseHold_Income_True (60.2%)** are also very high -- sensitive financial information that many customers may not disclose.
+- **DistA (30.6%):** Distance variable, partially from 999 placeholder conversion in Step 4 of cleaning plus original NAs.
+- **Moderate missingness (5-15%):** Marital (12.2%), Age (10.4%), Rep_Name (9.2%), Sex (7.1%), Tenure (6.3%), Rep_Visits (5.4%), Rep_Calls (4.6%), Num_Children (4.3%).
+- The `md.pattern()` output shows the patterns of co-occurrence of missingness -- the 7 CustomerDF variables always go missing together, confirming a block pattern.
+
+---
+
+### MD Step 2: Mark Missing Data (Create Indicator Variables)
+
+We create binary indicator variables (0 = present, 1 = missing) for every variable with missing data. These indicators serve three purposes: (1) allow testing for MCAR and MAR, (2) can sometimes be used as predictors themselves, and (3) maintain integrity of the original variables after imputation.
+
+```{r md_step2_mark, echo=TRUE}
+cat("=== CREATING MISSING DATA INDICATORS ===\n\n")
+
+# Get variables with missing values
+vars_with_na <- names(MDdf)[colSums(is.na(MDdf)) > 0]
+
+# Exclude Marital_Original (backup column) and Flag_Tenure_High (derived from Tenure)
+vars_with_na <- vars_with_na[!vars_with_na %in% c("Marital_Original", "Flag_Tenure_High")]
+
+cat("Creating indicators for", length(vars_with_na), "variables:\n")
+cat(vars_with_na, sep = ", ")
+cat("\n\n")
+
+# Create indicator variables: 1 = missing, 0 = present
+for(var in vars_with_na) {
+  indicator_name <- paste0("M_", var)
+  MDdf[[indicator_name]] <- ifelse(is.na(MDdf[[var]]), 1, 0)
+}
+
+# Display indicator summary
+indicator_vars <- grep("^M_", names(MDdf), value = TRUE)
+cat("Indicator variables created:", length(indicator_vars), "\n\n")
+
+# Verify indicators match original NA counts
+indicator_check <- data.frame(
+  Variable = vars_with_na,
+  Original_NA = sapply(vars_with_na, function(v) sum(is.na(MDdf[[v]]))),
+  Indicator_Sum = sapply(vars_with_na, function(v) sum(MDdf[[paste0("M_", v)]]))
+)
+cat("=== VERIFICATION: Indicators match original NA counts ===\n")
+print(indicator_check, row.names = FALSE)
+cat("\nAll match:", all(indicator_check$Original_NA == indicator_check$Indicator_Sum), "\n")
+```
+
+```{r md_step2_correlations, echo=TRUE, fig.width=10, fig.height=8}
+# Check correlations between missing indicators
+# High correlation = variables tend to be missing together
+indicator_matrix <- MDdf[, indicator_vars]
+
+# Only use indicators with variance > 0
+non_constant <- sapply(indicator_matrix, function(x) var(x) > 0)
+indicator_matrix <- indicator_matrix[, non_constant]
+
+cor_indicators <- cor(indicator_matrix)
+
+cat("=== CORRELATION OF MISSING INDICATORS ===\n")
+cat("High correlations suggest variables are missing as a block\n\n")
+
+# Find pairs with correlation > 0.8
+high_cor <- which(abs(cor_indicators) > 0.8 & abs(cor_indicators) < 1, arr.ind = TRUE)
+if(nrow(high_cor) > 0) {
+  pairs_shown <- c()
+  for(i in 1:nrow(high_cor)) {
+    if(high_cor[i,1] < high_cor[i,2]) {
+      v1 <- rownames(cor_indicators)[high_cor[i,1]]
+      v2 <- colnames(cor_indicators)[high_cor[i,2]]
+      r_val <- cor_indicators[high_cor[i,1], high_cor[i,2]]
+      cat(sprintf("  %s <-> %s : r = %.3f\n", v1, v2, r_val))
+    }
+  }
+}
+
+corrplot(cor_indicators, method = "color", type = "upper",
+         tl.cex = 0.7, tl.col = "black",
+         title = "Correlation of Missing Data Indicators",
+         mar = c(0, 0, 2, 0))
+```
+
+**MD Step 2 Observations:**
+
+- Created 18 binary indicator variables (M_VariableName) for each variable with missing data.
+- The 7 CustomerDF variables (Educational_Level, Favorite_Caps_Player, Favorite_Sport, Job_Sector, Mode_Of_Transport, Team_B_STH, Team_C_STH) have perfect correlation (r = 1.0) among their indicators, confirming they are missing as a single block.
+- Net_Worth_True and HouseHold_Income_True indicators also show moderate-to-high correlation, suggesting they tend to be missing together (both are financial variables).
+- This block pattern is important: it means these 7 variables are likely missing because a subset of customers never completed a secondary survey, not because of random chance.
+
+---
+
+### MD Step 3: Clean Up Obvious Mistakes
+
+Review variables for values that should actually be coded as NA or corrected. This includes placeholder values, impossible values, and categorical codes that represent "unknown" or "missing."
+
+```{r md_step3_cleanup, echo=TRUE}
+cat("=== CLEANING UP OBVIOUS MISTAKES ===\n\n")
+
+# --- 3a. Marital "U" = Unknown ---
+cat("3a. Marital 'U' (Unknown):\n")
+cat("    Count of 'U':", sum(MDdf$Marital == "U", na.rm = TRUE), "\n")
+cat("    Decision: KEEP 'U' as a valid level. Although 'Unknown' could be treated as\n")
+cat("    missing, we retain it as a distinct category to preserve information and\n")
+cat("    see how it behaves in modeling.\n")
+cat("    Marital levels:", levels(MDdf$Marital), "\n")
+cat("    Marital NA count:", sum(is.na(MDdf$Marital)), "\n\n")
+
+# --- 3b. Survey_Comp values > 1 (expected 0-1 proportion) ---
+cat("3b. Survey_Comp values > 1 (expected range 0-1):\n")
+cat("    Count > 1:", sum(MDdf$Survey_Comp > 1, na.rm = TRUE), "\n")
+cat("    Max value:", max(MDdf$Survey_Comp, na.rm = TRUE), "\n")
+cat("    Decision: Cap at 1.0 -- values above 1 on a proportion scale are data entry errors\n")
+MDdf$Survey_Comp[MDdf$Survey_Comp > 1] <- 1.0
+cat("    Survey_Comp range after cap:", range(MDdf$Survey_Comp, na.rm = TRUE), "\n\n")
+
+# --- 3c. Mult_Loc has "Y" and "Yes" (same meaning) ---
+cat("3c. Mult_Loc has inconsistent levels:\n")
+print(table(MDdf$Mult_Loc, useNA = "ifany"))
+cat("    Decision: Combine 'Y' into 'Yes'\n")
+MDdf$Mult_Loc[MDdf$Mult_Loc == "Y"] <- "Yes"
+MDdf$Mult_Loc <- droplevels(MDdf$Mult_Loc)
+cat("    After fix:\n")
+print(table(MDdf$Mult_Loc, useNA = "ifany"))
+cat("\n")
+
+# --- 3d. Most_Purch_Concession has blank entries ---
+cat("3d. Most_Purch_Concession blank entries:\n")
+blank_count <- sum(MDdf$Most_Purch_Concession == "", na.rm = TRUE)
+cat("    Blank entries:", blank_count, "\n")
+if(blank_count > 0) {
+  cat("    Decision: Convert blanks to NA\n")
+  MDdf$Most_Purch_Concession[MDdf$Most_Purch_Concession == ""] <- NA
+  MDdf$Most_Purch_Concession <- droplevels(MDdf$Most_Purch_Concession)
+  # Create/update indicator for this newly-missing variable
+  MDdf$M_Most_Purch_Concession <- ifelse(is.na(MDdf$Most_Purch_Concession), 1, 0)
+  indicator_vars <- grep("^M_", names(MDdf), value = TRUE)
+}
+cat("\n")
+
+# --- 3e. Tenure = 400 (impossible if years) ---
+cat("3e. Tenure extreme values:\n")
+cat("    Values > 100:", sum(MDdf$Tenure > 100, na.rm = TRUE), "\n")
+cat("    Max tenure:", max(MDdf$Tenure, na.rm = TRUE), "\n")
+cat("    Decision: Leave as-is for now. Units may be months (400 months = 33 years, plausible).\n")
+cat("    Flagged via Flag_Tenure_High for SME review.\n\n")
+
+# --- 3f. Age = 99 check ---
+cat("3f. Age extreme values:\n")
+cat("    Values = 99:", sum(MDdf$Age == 99, na.rm = TRUE), "\n")
+cat("    Age range:", range(MDdf$Age, na.rm = TRUE), "\n")
+cat("    Decision: Leave as-is -- could be legitimate. SME review needed.\n\n")
+
+cat("=== STEP 3 COMPLETE ===\n")
+cat("Total missing after cleanup:", sum(is.na(MDdf)), "\n")
+```
+
+**MD Step 3 Observations:**
+
+- **Marital "U":** 248 values kept as "U" (Unknown) -- a valid distinct category. Retaining "U" preserves information and lets us see how unknown marital status behaves in the model. Marital still has 1,155 true NAs to impute.
+- **Survey_Comp > 1:** 110 values capped at 1.0. A completion proportion cannot exceed 100%, so these were data entry errors.
+- **Mult_Loc "Y" vs "Yes":** 72 "Y" entries combined with "Yes" -- these represent the same category with inconsistent coding.
+- **Most_Purch_Concession blanks:** 85 blank entries converted to NA -- blanks in a categorical variable are missing data, not a valid level.
+- **Tenure = 400 and Age = 99:** Left as-is pending SME verification. These are flagged but not corrected without domain knowledge.
+
+---
+
+### MD Step 4: Make Easy Decisions on Rows/Columns
+
+Evaluate which rows or columns should be excluded from imputation based on irrelevance. We do NOT delete data -- we exclude non-analytical columns from the imputation process while keeping the original intact. **Decision: We will impute ALL variables with missing data**, including those with high missingness (>50%), to see the full effect on the model.
+
+```{r md_step4_decisions, echo=TRUE}
+cat("=== EASY DECISIONS ON ROWS/COLUMNS ===\n\n")
+
+# --- 4a. Column Decisions ---
+cat("--- COLUMN DECISIONS ---\n\n")
+
+# Recalculate missing after Step 3 cleanup
+na_counts_updated <- colSums(is.na(MDdf))
+na_cols_updated <- na_counts_updated[na_counts_updated > 0]
+na_sorted_updated <- sort(na_cols_updated, decreasing = TRUE)
+
+for(i in seq_along(na_sorted_updated)) {
+  pct <- round(na_sorted_updated[i] / nrow(MDdf) * 100, 1)
+  cat(sprintf("%-25s : %4d (%5.1f%%)\n", names(na_sorted_updated)[i], na_sorted_updated[i], pct))
+}
+
+# Identify columns to EXCLUDE from imputation (only non-analytical columns)
+cat("\n--- COLUMNS EXCLUDED FROM IMPUTATION (non-analytical only) ---\n\n")
+
+# Identifier columns - not predictors
+id_cols <- c("ID", "Cust_ID")
+cat("Identifier columns (not predictors):", paste(id_cols, collapse = ", "), "\n")
+
+# Backup/derived columns
+backup_cols <- c("Marital_Original", "Flag_Tenure_High", "Flag_Survey_Invalid")
+cat("Backup/derived columns:", paste(backup_cols, collapse = ", "), "\n")
+
+# Date components (derived from Last_Contact)
+date_cols <- c("Last_Contact", "Contact_Year", "Contact_Month", "Contact_Day",
+               "Contact_Weekday", "Contact_Hour")
+cat("Date columns (derived):", paste(date_cols, collapse = ", "), "\n")
+
+# High-cardinality columns not useful for imputation
+high_card_cols <- c("State_Name", "Zip_Codes", "Seating_Location")
+cat("High-cardinality columns:", paste(high_card_cols, collapse = ", "), "\n")
+
+# Indicator columns (used for testing, not for imputation)
+indicator_cols <- grep("^M_", names(MDdf), value = TRUE)
+cat("Indicator columns:", length(indicator_cols), "M_ variables\n")
+
+# All columns to exclude
+all_exclude <- c(id_cols, backup_cols, date_cols, high_card_cols, indicator_cols)
+cat("\nTotal columns excluded from imputation:", length(all_exclude), "\n")
+
+# --- 4b. HIGH MISSINGNESS: IMPUTE ANYWAY ---
+cat("\n--- HIGH MISSINGNESS COLUMN DECISIONS ---\n\n")
+
+cat("NOTE: Normally variables with >50% missing would be excluded from imputation.\n")
+cat("However, we are choosing to impute ALL missing values to observe the full\n")
+cat("effect on the modeling results. This is not best practice but is instructive.\n\n")
+
+cat("CustomerDF block (70% missing each - 7 variables):\n")
+cat("  Educational_Level, Favorite_Caps_Player, Favorite_Sport, Job_Sector,\n")
+cat("  Mode_Of_Transport, Team_B_STH, Team_C_STH\n")
+cat("  Decision: IMPUTE. These are missing as a block (supplemental survey).\n")
+cat("  Imputing 70% is essentially manufacturing data, but we proceed to see\n")
+cat("  the impact on the model.\n\n")
+
+cat("Net_Worth_True (61.0% missing):\n")
+cat("  Decision: IMPUTE. High missingness but we proceed as planned.\n\n")
+
+cat("HouseHold_Income_True (60.2% missing):\n")
+cat("  Decision: IMPUTE. High missingness but we proceed as planned.\n\n")
+
+# NO high_miss_exclude -- impute everything
+high_miss_exclude <- c()
+
+# --- 4c. Row Decisions ---
+cat("\n--- ROW DECISIONS ---\n\n")
+
+# Check how many rows have excessive missing
+total_cols <- ncol(MDdf) - length(all_exclude)
+row_na_counts <- rowSums(is.na(MDdf[, !names(MDdf) %in% all_exclude]))
+cat("Among the", total_cols, "imputation-eligible columns:\n")
+cat("  Rows with 0 missing:", sum(row_na_counts == 0), "\n")
+cat("  Rows with 1-3 missing:", sum(row_na_counts >= 1 & row_na_counts <= 3), "\n")
+cat("  Rows with 4-6 missing:", sum(row_na_counts >= 4 & row_na_counts <= 6), "\n")
+cat("  Rows with 7-10 missing:", sum(row_na_counts >= 7 & row_na_counts <= 10), "\n")
+cat("  Rows with 10+ missing:", sum(row_na_counts > 10), "\n")
+cat("\n  Decision: No rows excluded.\n")
+
+# --- 4d. Build the imputation-eligible variable list ---
+impute_vars <- names(MDdf)[!names(MDdf) %in% c(all_exclude, high_miss_exclude)]
+cat("\n=== VARIABLES ELIGIBLE FOR IMPUTATION ===\n")
+cat("Count:", length(impute_vars), "\n")
+cat(impute_vars, sep = ", ")
+cat("\n")
+
+# Check which of these actually have missing values
+impute_with_na <- impute_vars[colSums(is.na(MDdf[, impute_vars])) > 0]
+cat("\nOf these,", length(impute_with_na), "have missing values to impute:\n")
+for(v in impute_with_na) {
+  ct <- sum(is.na(MDdf[[v]]))
+  pct <- round(ct / nrow(MDdf) * 100, 1)
+  cat(sprintf("  %-25s : %4d (%5.1f%%)\n", v, ct, pct))
+}
+```
+
+**MD Step 4 Observations:**
+
+- **Columns excluded from imputation (non-analytical only):** ID, Cust_ID, Marital_Original, Flag variables, Last_Contact and date components, high-cardinality columns (State_Name, Zip_Codes, Seating_Location), all M_ indicator variables.
+- **No variables excluded for high missingness.** We are imputing ALL variables including the 7 CustomerDF block variables (70%), Net_Worth_True (61%), and HouseHold_Income_True (60.2%). This is not typical best practice -- imputing 70% of a variable means we are largely manufacturing data -- but we proceed to see the full effect on the model.
+- **Row decisions:** No rows excluded.
+
+---
+
+### MD Step 5: Assess Missingness Patterns (MCAR vs MAR)
+
+We now determine whether the missing data is MCAR (Missing Completely at Random) or MAR (Missing at Random). This matters because it determines which imputation methods are appropriate. We use decision trees to test whether missingness in each variable can be predicted by other observed variables. If it CAN be predicted, the data is MAR. If it CANNOT, the data may be MCAR.
+
+Per the instructor: "I find a Decision Tree to be just fine and nice visually" and "I use judgment, not statistical significance." The consequences of misclassifying MCAR as MAR are low because advanced methods (MICE) assume MAR and handle MCAR just fine.
+
+```{r md_step5_assess_setup, echo=TRUE}
+cat("=== STEP 5: ASSESS MISSINGNESS PATTERNS ===\n\n")
+cat("Method: Decision Trees and Logistic Regression\n")
+cat("Goal: Determine if missingness is predictable from other variables (MAR)\n")
+cat("      or unpredictable (MCAR)\n\n")
+
+# Variables to test: those with missing values that we plan to impute
+test_vars <- impute_with_na
+cat("Variables to assess:", paste(test_vars, sep = ", "), "\n\n")
+
+# Predictors for the test: complete or near-complete variables
+# Use the indicator variables we created in Step 2
+predictor_candidates <- impute_vars[colSums(is.na(MDdf[, impute_vars])) == 0]
+cat("Predictor candidates (no missing):", length(predictor_candidates), "\n")
+cat(predictor_candidates, sep = ", ")
+cat("\n")
+```
+
+```{r md_step5_trees, echo=TRUE, fig.width=10, fig.height=7}
+# Use decision trees to predict missingness indicator for each variable
+# If the tree finds meaningful splits, missingness is predictable -> MAR
+# If the tree is trivial (no splits or very low accuracy), -> likely MCAR
+
+cat("=== DECISION TREE TESTS FOR MISSINGNESS ===\n\n")
+
+# Build a data frame of complete predictors for testing
+complete_predictors <- MDdf[, predictor_candidates]
+
+# Remove any factor columns with too many levels for rpart
+for(col in names(complete_predictors)) {
+  if(is.factor(complete_predictors[[col]]) && nlevels(complete_predictors[[col]]) > 30) {
+    complete_predictors[[col]] <- NULL
+  }
+}
+
+# Also remove logical columns (convert to numeric)
+for(col in names(complete_predictors)) {
+  if(is.logical(complete_predictors[[col]])) {
+    complete_predictors[[col]] <- as.integer(complete_predictors[[col]])
+  }
+}
+
+results <- data.frame(
+  Variable = character(),
+  Tree_Splits = integer(),
+  Accuracy = numeric(),
+  Top_Predictor = character(),
+  Assessment = character(),
+  stringsAsFactors = FALSE
+)
+
+for(var in test_vars) {
+  # Target: missing indicator
+  target <- factor(MDdf[[paste0("M_", var)]], levels = c(0, 1), labels = c("Present", "Missing"))
+
+  # Combine with predictors
+  tree_data <- cbind(Target = target, complete_predictors)
+
+  # Build decision tree
+  tree_model <- rpart(Target ~ .,
+                      data = tree_data,
+                      method = "class",
+                      control = rpart.control(maxdepth = 3, minsplit = 50, cp = 0.01))
+
+  # Get results
+  n_splits <- nrow(tree_model$frame[tree_model$frame$var != "<leaf>", ])
+  preds <- predict(tree_model, tree_data, type = "class")
+  acc <- round(mean(preds == target) * 100, 1)
+
+  # Top predictor
+  if(length(tree_model$variable.importance) > 0) {
+    top_pred <- names(tree_model$variable.importance)[1]
+  } else {
+    top_pred <- "None"
+  }
+
+  # Assessment
+  if(n_splits == 0) {
+    assessment <- "Likely MCAR"
+  } else if(acc > 85) {
+    assessment <- "MAR"
+  } else {
+    assessment <- "Possibly MAR"
+  }
+
+  results <- rbind(results, data.frame(
+    Variable = var, Tree_Splits = n_splits, Accuracy = acc,
+    Top_Predictor = top_pred, Assessment = assessment, stringsAsFactors = FALSE
+  ))
+}
+
+cat("=== MISSINGNESS ASSESSMENT RESULTS ===\n\n")
+print(results, row.names = FALSE)
+
+flextable(results) %>%
+  set_header_labels(Variable = "Variable", Tree_Splits = "Splits",
+                    Accuracy = "Accuracy (%)", Top_Predictor = "Top Predictor",
+                    Assessment = "Assessment") %>%
+  autofit()
+```
+
+```{r md_step5_tree_plots, echo=TRUE, fig.width=10, fig.height=7}
+# Plot the most informative trees (those with splits)
+vars_with_splits <- results$Variable[results$Tree_Splits > 0]
+
+if(length(vars_with_splits) > 0) {
+  for(var in vars_with_splits[1:min(4, length(vars_with_splits))]) {
+    target <- factor(MDdf[[paste0("M_", var)]], levels = c(0, 1), labels = c("Present", "Missing"))
+    tree_data <- cbind(Target = target, complete_predictors)
+
+    tree_model <- rpart(Target ~ .,
+                        data = tree_data,
+                        method = "class",
+                        control = rpart.control(maxdepth = 3, minsplit = 50, cp = 0.01))
+
+    rpart.plot(tree_model,
+               main = paste("Missingness in", var, "-", results$Assessment[results$Variable == var]),
+               extra = 104,
+               box.palette = "RdYlGn")
+  }
+}
+```
+
+```{r md_step5_logistic, echo=TRUE}
+# Supplementary: Logistic regression tests for key variables
+cat("=== LOGISTIC REGRESSION TESTS (Supplementary) ===\n\n")
+
+for(var in test_vars) {
+  target <- MDdf[[paste0("M_", var)]]
+
+  # Only run if we have both 0s and 1s
+  if(length(unique(target)) < 2) next
+
+  # Use a few key predictors
+  test_data <- data.frame(
+    Missing = target,
+    Y01 = MDdf$Y01,
+    NumSeats = MDdf$NumSeats,
+    Total_Spent = MDdf$Total_Spent,
+    Concession_Total = MDdf$Concession_Total,
+    First_Year_STH = MDdf$First_Year_STH
+  )
+
+  model <- glm(Missing ~ ., data = test_data, family = binomial)
+  sig_vars <- names(which(summary(model)$coefficients[-1, 4] < 0.05))
+
+  if(length(sig_vars) > 0) {
+    cat(var, ": Significant predictors of missingness:", paste(sig_vars, collapse = ", "), "\n")
+    cat("  -> Supports MAR assessment\n\n")
+  } else {
+    cat(var, ": No significant predictors found -> Supports MCAR assessment\n\n")
+  }
+}
+```
+
+```{r md_step5_summary, echo=TRUE}
+cat("=== STEP 5 SUMMARY: MISSINGNESS PATTERN ASSESSMENT ===\n\n")
+
+# Final classification
+flextable(results) %>%
+  set_header_labels(Variable = "Variable", Tree_Splits = "Tree Splits",
+                    Accuracy = "Tree Accuracy (%)", Top_Predictor = "Top Predictor",
+                    Assessment = "Classification") %>%
+  color(~ Assessment == "MAR", ~ Assessment, color = "red") %>%
+  color(~ Assessment == "Likely MCAR", ~ Assessment, color = "darkgreen") %>%
+  color(~ Assessment == "Possibly MAR", ~ Assessment, color = "orange") %>%
+  autofit()
+```
+
+**MD Step 5 Observations:**
+
+The decision tree and logistic regression tests reveal the missingness patterns for each variable. The results table above shows the full assessment. Key findings:
+
+- **MAR variables** (missingness IS predictable from other observed data): Variables where the decision tree found meaningful splits. For example, DistA missingness is predicted by Y01. Most_Purch_Concession missingness is predicted by Concession_Total. The 7 CustomerDF block variables likely share a common MAR/MNAR pattern tied to survey completion.
+
+- **MCAR variables** (missingness is NOT predictable): Variables producing trees with zero splits -- their missingness cannot be predicted by any other variable. The data appears to be missing completely at random.
+
+- **The 7 CustomerDF block variables** (70% missing each): These are likely MNAR -- customers who didn't complete the supplemental survey are systematically different from those who did. Normally we would exclude these, but we are imputing them anyway to observe the effect. MICE will do its best with available predictors, but the results for these variables should be interpreted with caution since we are largely manufacturing data.
+
+- **Practical implication:** Since we are imputing everything, all variables proceed to Steps 6/7. MICE assumes MAR and handles MCAR just fine. The MNAR block variables are the riskiest to impute, but the professor wants to see what happens.
+
+---
+
+### Summary of Missing Data Steps 1-5
+
+```{r md_steps_1_5_summary, echo=TRUE}
+cat("=== MISSING DATA STEPS 1-5: COMPLETE ===\n\n")
+
+cat("Step 1 - Identify Missing Data:\n")
+cat("  Total missing: 67,997 values (12.2% of all cells)\n")
+cat("  20 variables have missing data\n")
+cat("  7 CustomerDF variables missing in identical block at 70%\n\n")
+
+cat("Step 2 - Mark Missing Data:\n")
+cat("  Created", length(indicator_cols), "binary indicator variables (M_ prefix)\n")
+cat("  Confirmed block pattern in CustomerDF variables (r = 1.0)\n\n")
+
+cat("Step 3 - Clean Up Obvious Mistakes:\n")
+cat("  Marital 'U' (248 values) -> KEPT as valid level\n")
+cat("  Survey_Comp > 1 (110 values) -> capped at 1.0\n")
+cat("  Mult_Loc 'Y' (72 values) -> 'Yes'\n")
+cat("  Most_Purch_Concession blanks (85 values) -> NA\n\n")
+
+cat("Step 4 - Easy Decisions on Rows/Columns:\n")
+cat("  Excluded from imputation: ID cols, date cols, backup cols, indicator cols\n")
+cat("  High-missingness variables: KEPT for imputation (imputing everything)\n")
+cat("  No rows excluded\n")
+cat("  Variables eligible for imputation:", length(impute_with_na), "\n\n")
+
+cat("Step 5 - Assess Missingness Patterns:\n")
+cat("  Used decision trees and logistic regression\n")
+cat("  Classification: Mix of MAR, MCAR, and likely MNAR (block) patterns\n")
+cat("  All variables proceed to imputation regardless\n\n")
+
+cat("=== READY FOR STEPS 6-7 (Simple Imputation & MICE) ===\n")
+cat("Dataset: MDdf with", nrow(MDdf), "rows x", ncol(MDdf), "columns\n")
+cat("Variables to impute:", length(impute_with_na), "\n")
+cat(paste(impute_with_na, collapse = ", "), "\n")
+```
+
+| MD Step | Action | Key Finding |
+|---------|--------|-------------|
+| 1. Identify | Counted and visualized all missing data | 12.2% overall; 7 variables missing as block at 70% |
+| 2. Mark | Created M_ indicator variables | Block pattern confirmed via indicator correlations |
+| 3. Clean | Fixed Survey_Comp, Mult_Loc, blanks; kept Marital U | 267 values corrected |
+| 4. Decide | Kept ALL variables; excluded only non-analytical cols | Imputing everything including 70% missing block |
+| 5. Assess | Decision tree + logistic regression tests | Mix of MAR, MCAR, and likely MNAR |
+
+---
+
+### MD Step 6: Apply Simple (Univariate) Imputation Techniques
+
+These are **univariate** (one variable at a time) methods. The goal is to handle variables with a small number of missing values using simple, defensible techniques -- getting them "out of the way" before Multiple Imputation (MICE) in Step 7. Variables with larger or more complex missingness patterns are left for MICE.
+
+**Non-modeling methods:** Mean, median, mode
+**Modeling methods:** Regression, CART, pmm (via mice with m=1)
+
+The decision of which variables to handle here vs. MICE depends on:
+
+1. How much data is missing (small = simpler method is fine)
+2. Whether the variable was classified as MCAR or MAR in Step 5
+3. SME judgment on whether a univariate approach is appropriate
+
+```{r md_step6_plan, echo=TRUE}
+cat("=== STEP 6: SIMPLE UNIVARIATE IMPUTATION ===\n\n")
+
+cat("Variables eligible for imputation and their characteristics:\n\n")
+
+# Recap the variables to impute
+for(v in impute_with_na) {
+  ct <- sum(is.na(MDdf[[v]]))
+  pct <- round(ct / nrow(MDdf) * 100, 1)
+  cls <- class(MDdf[[v]])[1]
+  assess <- results$Assessment[results$Variable == v]
+  cat(sprintf("  %-25s : %4d (%5.1f%%)  [%s]  %s\n", v, ct, pct, cls, assess))
+}
+
+cat("\n--- IMPUTATION PLAN ---\n\n")
+cat("SIMPLE UNIVARIATE (Step 6 - handle now):\n")
+cat("  Num_Children    (4.3%, integer)  -> Median imputation\n")
+cat("  Rep_Visits      (5.4%, numeric)  -> Median imputation\n")
+cat("  Most_Purch_Conc (0.9%, factor)   -> Mode imputation\n")
+cat("  Sex             (7.1%, factor)   -> Mode imputation\n\n")
+
+cat("MANAGEMENT DICTATE (Step 6 - custom code, NOT MICE):\n")
+cat("  Rep_Calls       (4.6%, numeric)  -> Stochastic imputation, independent\n")
+cat("  Rep_Name        (9.2%, factor)   -> Stochastic imputation, independent\n")
+cat("  Age             (10.4%, integer) -> Simple imputation using other variables\n\n")
+
+cat("MICE (Step 7 - multivariate imputation for remaining):\n")
+cat("  DistA                (30.6%, integer) -> pmm via MICE\n")
+cat("  Marital              (12.2%, factor)  -> polyreg via MICE\n")
+cat("  Tenure               (6.3%, integer)  -> pmm via MICE\n")
+cat("  Educational_Level    (70.0%, factor)  -> polyreg via MICE\n")
+cat("  Favorite_Caps_Player (70.0%, factor)  -> polyreg via MICE\n")
+cat("  Favorite_Sport       (70.0%, factor)  -> polyreg via MICE\n")
+cat("  Job_Sector           (70.0%, factor)  -> polyreg via MICE\n")
+cat("  Mode_Of_Transport    (70.0%, factor)  -> polyreg via MICE\n")
+cat("  Team_B_STH           (70.0%, factor)  -> logreg via MICE\n")
+cat("  Team_C_STH           (70.0%, factor)  -> logreg via MICE\n")
+cat("  Net_Worth_True       (61.0%, numeric) -> pmm via MICE\n")
+cat("  HouseHold_Income_True(60.2%, numeric) -> pmm via MICE\n")
+cat("\n  NOTE: Imputing the 70% missing block is not best practice.\n")
+cat("  We are essentially manufacturing data for these variables.\n")
+cat("  Results should be interpreted with extreme caution.\n")
+```
+
+```{r md_step6_helpers, echo=TRUE}
+# Helper function: get the mode of a vector (most frequent value)
+get_mode <- function(x) {
+  x <- x[!is.na(x)]
+  ux <- unique(x)
+  ux[which.max(tabulate(match(x, ux)))]
+}
+
+# Store pre-imputation counts for verification
+pre_impute_na <- sapply(impute_with_na, function(v) sum(is.na(MDdf[[v]])))
+```
+
+```{r md_step6_numeric, echo=TRUE}
+cat("=== 6a. NUMERIC VARIABLES: MEDIAN IMPUTATION ===\n\n")
+
+# --- Num_Children (4.3% missing, integer) ---
+cat("Num_Children:\n")
+cat("  Before - NA count:", sum(is.na(MDdf$Num_Children)), "\n")
+cat("  Median:", median(MDdf$Num_Children, na.rm = TRUE), "\n")
+cat("  Mean:", round(mean(MDdf$Num_Children, na.rm = TRUE), 2), "\n")
+median_nc <- median(MDdf$Num_Children, na.rm = TRUE)
+MDdf$Num_Children[is.na(MDdf$Num_Children)] <- median_nc
+cat("  After - NA count:", sum(is.na(MDdf$Num_Children)), "\n")
+cat("  Imputed with median =", median_nc, "\n")
+cat("  Rationale: Small % missing, integer variable, median preserves distribution better\n")
+cat("  than mean for count data with a floor at 0.\n\n")
+
+# --- Rep_Calls (4.6% missing, numeric) ---
+# MANAGEMENT DICTATE: Stochastic imputation, independent of all other variables, custom code
+cat("Rep_Calls (MANAGEMENT DICTATE - Stochastic, Independent):\n")
+cat("  Before - NA count:", sum(is.na(MDdf$Rep_Calls)), "\n")
+observed_rc <- MDdf$Rep_Calls[!is.na(MDdf$Rep_Calls)]
+cat("  Observed distribution - Mean:", round(mean(observed_rc), 2),
+    " SD:", round(sd(observed_rc), 2),
+    " Min:", min(observed_rc), " Max:", max(observed_rc), "\n")
+n_missing_rc <- sum(is.na(MDdf$Rep_Calls))
+set.seed(42)
+# Stochastic imputation: sample with replacement from observed values
+# This preserves the empirical distribution (including skewness) without
+# using any other variables -- purely independent of all other columns
+stochastic_rc <- sample(observed_rc, size = n_missing_rc, replace = TRUE)
+MDdf$Rep_Calls[is.na(MDdf$Rep_Calls)] <- stochastic_rc
+cat("  After - NA count:", sum(is.na(MDdf$Rep_Calls)), "\n")
+cat("  Method: Stochastic sampling from observed distribution (sample with replacement)\n")
+cat("  Imputed", n_missing_rc, "values drawn randomly from", length(observed_rc), "observed values\n")
+cat("  Rationale: Management dictates stochastic imputation independent of all other\n")
+cat("  variables. Sampling from the observed distribution preserves the marginal\n")
+cat("  distribution shape (including skewness) and adds natural variability, unlike\n")
+cat("  deterministic median imputation which creates a spike at one value.\n\n")
+
+# --- Rep_Visits (5.4% missing, numeric) ---
+cat("Rep_Visits:\n")
+cat("  Before - NA count:", sum(is.na(MDdf$Rep_Visits)), "\n")
+cat("  Median:", round(median(MDdf$Rep_Visits, na.rm = TRUE), 2), "\n")
+cat("  Mean:", round(mean(MDdf$Rep_Visits, na.rm = TRUE), 2), "\n")
+median_rv <- median(MDdf$Rep_Visits, na.rm = TRUE)
+MDdf$Rep_Visits[is.na(MDdf$Rep_Visits)] <- median_rv
+cat("  After - NA count:", sum(is.na(MDdf$Rep_Visits)), "\n")
+cat("  Imputed with median =", round(median_rv, 2), "\n")
+cat("  Rationale: Like Rep_Calls, this is a count-like variable. Median imputation\n")
+cat("  is conservative and preserves the central tendency without inflating variance.\n\n")
+```
+
+```{r md_step6_categorical, echo=TRUE}
+cat("=== 6b. CATEGORICAL VARIABLES: MODE IMPUTATION ===\n\n")
+
+# --- Most_Purch_Concession (0.9% missing, factor) ---
+cat("Most_Purch_Concession:\n")
+cat("  Before - NA count:", sum(is.na(MDdf$Most_Purch_Concession)), "\n")
+cat("  Distribution:\n")
+print(table(MDdf$Most_Purch_Concession, useNA = "ifany"))
+mode_mpc <- get_mode(MDdf$Most_Purch_Concession)
+cat("  Mode:", as.character(mode_mpc), "\n")
+MDdf$Most_Purch_Concession[is.na(MDdf$Most_Purch_Concession)] <- mode_mpc
+cat("  After - NA count:", sum(is.na(MDdf$Most_Purch_Concession)), "\n")
+cat("  Imputed with mode =", as.character(mode_mpc), "\n")
+cat("  Rationale: Very small % missing (<1%). Mode is the standard simple method\n")
+cat("  for categorical variables. With so few values to fill, impact is minimal.\n\n")
+
+# --- Sex (7.1% missing, factor) ---
+cat("Sex:\n")
+cat("  Before - NA count:", sum(is.na(MDdf$Sex)), "\n")
+cat("  Distribution:\n")
+print(table(MDdf$Sex, useNA = "ifany"))
+mode_sex <- get_mode(MDdf$Sex)
+cat("  Mode:", as.character(mode_sex), "\n")
+MDdf$Sex[is.na(MDdf$Sex)] <- mode_sex
+cat("  After - NA count:", sum(is.na(MDdf$Sex)), "\n")
+cat("  Imputed with mode =", as.character(mode_sex), "\n")
+cat("  Rationale: Binary variable with clear dominant category. Mode imputation is\n")
+cat("  conservative and appropriate when one category heavily outweighs the other.\n\n")
+
+# --- Rep_Name (9.2% missing, factor) ---
+# MANAGEMENT DICTATE: Stochastic imputation, independent of all other variables, custom code
+cat("Rep_Name (MANAGEMENT DICTATE - Stochastic, Independent):\n")
+cat("  Before - NA count:", sum(is.na(MDdf$Rep_Name)), "\n")
+cat("  Distribution:\n")
+observed_rn <- MDdf$Rep_Name[!is.na(MDdf$Rep_Name)]
+print(table(observed_rn))
+n_missing_rn <- sum(is.na(MDdf$Rep_Name))
+# Stochastic imputation: sample from observed level proportions
+# This preserves the empirical distribution across categories
+set.seed(123)
+level_props <- prop.table(table(observed_rn))
+cat("\n  Level proportions:\n")
+print(round(level_props, 4))
+stochastic_rn <- sample(names(level_props), size = n_missing_rn,
+                        replace = TRUE, prob = as.numeric(level_props))
+MDdf$Rep_Name[is.na(MDdf$Rep_Name)] <- stochastic_rn
+cat("  After - NA count:", sum(is.na(MDdf$Rep_Name)), "\n")
+cat("  Method: Stochastic sampling from observed level proportions\n")
+cat("  Imputed", n_missing_rn, "values drawn randomly proportional to observed frequencies\n")
+cat("  Rationale: Management dictates stochastic imputation independent of all other\n")
+cat("  variables. Sampling proportional to observed level frequencies preserves the\n")
+cat("  category distribution while adding natural variability. Unlike mode imputation\n")
+cat("  (which assigns everyone the same rep), this spreads missing values across all\n")
+cat("  reps in proportion to their observed frequencies.\n\n")
+```
+
+```{r md_step6_age, echo=TRUE, fig.width=10, fig.height=6}
+cat("=== 6c. AGE: SIMPLE IMPUTATION USING OTHER VARIABLES (MANAGEMENT DICTATE) ===\n\n")
+
+# MANAGEMENT DICTATE: Age must be imputed using simple imputation with other
+# variables, using our own code (not MICE functions).
+# Approach: Build a linear regression model on observed Age using other complete
+# predictors, then predict missing values.
+
+cat("Age (MANAGEMENT DICTATE - Simple Imputation Using Other Variables):\n")
+cat("  Before - NA count:", sum(is.na(MDdf$Age)), "\n")
+n_missing_age <- sum(is.na(MDdf$Age))
+
+# Select predictors that are complete (no NAs) and analytically relevant
+# We use variables already imputed in Steps 6a/6b plus originally complete ones
+age_predictors <- c("Y01", "Total_Spent", "NumSeats", "Tenure",
+                    "First_Year_STH", "Num_Children", "Rep_Calls",
+                    "Rep_Visits", "Concession_Total", "Survey_Comp")
+
+# Check which predictors are actually available and complete
+available_preds <- age_predictors[age_predictors %in% names(MDdf)]
+available_preds <- available_preds[sapply(available_preds, function(v) sum(is.na(MDdf[[v]])) == 0)]
+cat("  Predictors used (complete variables):", paste(available_preds, collapse = ", "), "\n\n")
+
+# Build training data: rows where Age is observed
+train_idx <- !is.na(MDdf$Age)
+pred_idx <- is.na(MDdf$Age)
+
+train_data <- MDdf[train_idx, c("Age", available_preds)]
+pred_data <- MDdf[pred_idx, available_preds]
+
+# Fit a linear regression model
+age_model <- lm(Age ~ ., data = train_data)
+cat("  Regression model summary:\n")
+print(summary(age_model))
+
+# Predict missing Age values
+predicted_age <- predict(age_model, newdata = pred_data)
+
+# Round to integers (Age is whole years) and enforce reasonable bounds
+predicted_age <- round(predicted_age)
+predicted_age <- pmax(predicted_age, min(MDdf$Age, na.rm = TRUE))  # floor at observed min
+predicted_age <- pmin(predicted_age, max(MDdf$Age, na.rm = TRUE))  # cap at observed max
+
+cat("\n  Predicted Age distribution:\n")
+cat("    Mean:", round(mean(predicted_age), 1), "\n")
+cat("    SD:", round(sd(predicted_age), 1), "\n")
+cat("    Range:", min(predicted_age), "-", max(predicted_age), "\n")
+cat("  Observed Age distribution:\n")
+cat("    Mean:", round(mean(MDdf$Age, na.rm = TRUE), 1), "\n")
+cat("    SD:", round(sd(MDdf$Age, na.rm = TRUE), 1), "\n")
+cat("    Range:", min(MDdf$Age, na.rm = TRUE), "-", max(MDdf$Age, na.rm = TRUE), "\n\n")
+
+# Impute
+MDdf$Age[is.na(MDdf$Age)] <- predicted_age
+cat("  After - NA count:", sum(is.na(MDdf$Age)), "\n")
+cat("  Method: Linear regression on", length(available_preds), "predictor variables\n")
+cat("  Imputed", n_missing_age, "values using lm() predictions (rounded to integers)\n")
+cat("  Rationale: Management dictates simple imputation using other variables with\n")
+cat("  custom code (not MICE). Linear regression leverages relationships between Age\n")
+cat("  and other observed variables to produce informed predictions. Values are rounded\n")
+cat("  to whole years and clamped to the observed Age range.\n\n")
+
+# Diagnostic plot: predicted vs actual (on training data)
+train_preds <- predict(age_model, newdata = train_data)
+par(mfrow = c(1, 2))
+plot(train_data$Age, train_preds,
+     main = "Age Model: Actual vs Predicted (Training)",
+     xlab = "Actual Age", ylab = "Predicted Age",
+     col = rgb(0.2, 0.4, 0.8, 0.3), pch = 16)
+abline(0, 1, col = "red", lwd = 2)
+
+hist(predicted_age, main = "Distribution of Imputed Age Values",
+     col = "steelblue", xlab = "Imputed Age", breaks = 20)
+abline(v = mean(MDdf$Age, na.rm = TRUE), col = "red", lwd = 2, lty = 2)
+legend("topright", "Overall Mean Age", col = "red", lty = 2, lwd = 2)
+par(mfrow = c(1, 1))
+```
+
+```{r md_step6_verify, echo=TRUE, fig.width=10, fig.height=6}
+cat("=== STEP 6 VERIFICATION ===\n\n")
+
+# Post-imputation counts
+post_impute_na <- sapply(impute_with_na, function(v) sum(is.na(MDdf[[v]])))
+
+verify_df <- data.frame(
+  Variable = impute_with_na,
+  Before = pre_impute_na,
+  After = post_impute_na,
+  Imputed = pre_impute_na - post_impute_na,
+  Method = ifelse(pre_impute_na - post_impute_na > 0,
+                  ifelse(impute_with_na %in% c("Num_Children", "Rep_Visits"), "Median",
+                  ifelse(impute_with_na == "Rep_Calls", "Stochastic (Mgmt)",
+                  ifelse(impute_with_na == "Rep_Name", "Stochastic (Mgmt)",
+                  ifelse(impute_with_na == "Age", "Regression (Mgmt)",
+                  ifelse(impute_with_na %in% c("Most_Purch_Concession", "Sex"), "Mode", "---"))))),
+                  "Left for MICE")
+)
+
+print(verify_df, row.names = FALSE)
+
+cat("\nTotal missing before Step 6:", sum(pre_impute_na), "\n")
+cat("Total missing after Step 6:", sum(post_impute_na), "\n")
+cat("Values imputed in Step 6:", sum(pre_impute_na) - sum(post_impute_na), "\n")
+
+cat("\n--- REMAINING FOR MICE (Step 7) ---\n")
+remaining <- verify_df[verify_df$After > 0, ]
+print(remaining[, c("Variable", "After")], row.names = FALSE)
+
+# Flextable summary
+flextable(verify_df) %>%
+  set_header_labels(Variable = "Variable", Before = "NA Before",
+                    After = "NA After", Imputed = "Values Filled",
+                    Method = "Method Used") %>%
+  color(~ After == 0, ~ After, color = "darkgreen") %>%
+  color(~ After > 0, ~ After, color = "red") %>%
+  autofit()
+```
+
+```{r md_step6_distribution_check, echo=TRUE, fig.width=10, fig.height=10}
+# Visual check: compare distributions before and after imputation
+# We saved FFdf as the pre-imputation state, MDdf is post-imputation
+
+par(mfrow = c(3, 2))
+
+# Num_Children
+hist(FFdf$Num_Children[!is.na(FFdf$Num_Children)], main = "Num_Children (Before)", col = "lightblue",
+     xlab = "Number of Children", breaks = 12)
+hist(MDdf$Num_Children, main = "Num_Children (After Median)", col = "steelblue",
+     xlab = "Number of Children", breaks = 12)
+
+# Rep_Calls - now stochastic
+hist(FFdf$Rep_Calls[!is.na(FFdf$Rep_Calls)], main = "Rep_Calls (Before)", col = "lightblue",
+     xlab = "Rep Calls", breaks = 30)
+hist(MDdf$Rep_Calls, main = "Rep_Calls (After Stochastic)", col = "coral",
+     xlab = "Rep Calls", breaks = 30)
+
+# Rep_Visits
+hist(FFdf$Rep_Visits[!is.na(FFdf$Rep_Visits)], main = "Rep_Visits (Before)", col = "lightblue",
+     xlab = "Rep Visits", breaks = 20)
+hist(MDdf$Rep_Visits, main = "Rep_Visits (After Median)", col = "steelblue",
+     xlab = "Rep Visits", breaks = 20)
+
+par(mfrow = c(1, 1))
+```
+
+**MD Step 6 Observations:**
+
+**Numeric variables imputed with median:**
+
+- **Num_Children** (406 values, 4.3%): Imputed with median. Small % missing, integer count variable. Median preserves distribution and avoids non-integer imputed values.
+- **Rep_Visits** (508 values, 5.4%): Imputed with median. Right-skewed count data benefits from median imputation.
+
+**Management Dictate -- Stochastic imputation (independent of all other variables):**
+
+- **Rep_Calls** (433 values, 4.6%): Stochastic imputation via `sample()` from observed values with replacement. This preserves the full empirical distribution (including right skew) while adding natural variability. Unlike median imputation, stochastic sampling does not create an artificial spike at one value. Management required this be independent of all other variables and use custom code (not MICE).
+- **Rep_Name** (871 values, 9.2%): Stochastic imputation via `sample()` from observed level proportions. Each missing value is randomly assigned a rep name proportional to the observed frequencies. This distributes missing values across all reps rather than assigning everyone the mode. Management required independence from other variables and custom code.
+
+**Management Dictate -- Simple imputation using other variables:**
+
+- **Age** (983 values, 10.4%): Linear regression (`lm()`) using complete predictor variables (Total_Spent, NumSeats, Tenure_Years, etc.) to predict missing Age values. Predictions are rounded to whole years and clamped to the observed Age range. Management required this use other variables but with custom code, not MICE functions.
+
+**Categorical variables imputed with mode:**
+
+- **Most_Purch_Concession** (~85 values, 0.9%): Imputed with mode. Very small missingness -- impact on distribution is negligible.
+- **Sex** (667 values, 7.1%): Imputed with mode. Binary variable with a dominant category.
+
+**Remaining for MICE (Step 7) -- all variables with remaining NAs:**
+
+These include both moderate-missingness variables and the high-missingness variables we are imputing per our decision to impute everything. Age has been moved out of MICE per management dictate. The high-miss variables (70%, 61%, 60%) will be handled by MICE but results should be interpreted with caution since we are largely manufacturing data for those.
+
+---
+
+### Summary of Missing Data Steps 1-6
+
+```{r md_steps_1_6_summary, echo=TRUE}
+cat("=== MISSING DATA STEPS 1-6: COMPLETE ===\n\n")
+
+cat("Step 1 - Identify Missing Data:\n")
+cat("  Total missing: 67,997 values (12.2% of all cells)\n")
+cat("  20 variables have missing data\n")
+cat("  7 CustomerDF variables missing in identical block at 70%\n\n")
+
+cat("Step 2 - Mark Missing Data:\n")
+cat("  Created", length(indicator_cols), "binary indicator variables (M_ prefix)\n")
+cat("  Confirmed block pattern in CustomerDF variables (r = 1.0)\n\n")
+
+cat("Step 3 - Clean Up Obvious Mistakes:\n")
+cat("  Marital 'U' (248 values) -> KEPT as valid level\n")
+cat("  Survey_Comp > 1 (110 values) -> capped at 1.0\n")
+cat("  Mult_Loc 'Y' (72 values) -> 'Yes'\n")
+cat("  Most_Purch_Concession blanks (85 values) -> NA\n\n")
+
+cat("Step 4 - Easy Decisions on Rows/Columns:\n")
+cat("  Excluded from imputation: ID cols, date cols, backup cols, indicator cols\n")
+cat("  High-missingness variables: KEPT (imputing everything)\n")
+cat("  No rows excluded\n")
+cat("  Variables eligible for imputation:", length(impute_with_na), "\n\n")
+
+cat("Step 5 - Assess Missingness Patterns:\n")
+cat("  Used decision trees and logistic regression\n")
+cat("  Classification: Mix of MAR, MCAR, and likely MNAR (block)\n")
+cat("  All variables proceed to imputation regardless\n\n")
+
+cat("Step 6 - Simple Imputation + Management Dictate:\n")
+cat("  Median imputation: Num_Children, Rep_Visits\n")
+cat("  Mode imputation: Most_Purch_Concession, Sex\n")
+cat("  MGMT DICTATE - Stochastic (independent): Rep_Calls, Rep_Name\n")
+cat("  MGMT DICTATE - Regression (using other vars): Age\n")
+cat("  Total values imputed:", sum(pre_impute_na) - sum(post_impute_na), "\n\n")
+
+cat("=== REMAINING FOR STEP 7 (MICE) ===\n")
+remaining_vars <- impute_with_na[sapply(impute_with_na, function(v) sum(is.na(MDdf[[v]]))) > 0]
+for(v in remaining_vars) {
+  ct <- sum(is.na(MDdf[[v]]))
+  pct <- round(ct / nrow(MDdf) * 100, 1)
+  cat(sprintf("  %-25s : %4d (%5.1f%%)\n", v, ct, pct))
+}
+cat("\nDataset: MDdf with", nrow(MDdf), "rows x", ncol(MDdf), "columns\n")
+cat("Total remaining missing (imputation-eligible):", sum(sapply(remaining_vars, function(v) sum(is.na(MDdf[[v]])))), "\n")
+```
+
+| MD Step | Action | Key Finding |
+|---------|--------|-------------|
+| 1. Identify | Counted and visualized all missing data | 12.2% overall; 7 variables missing as block at 70% |
+| 2. Mark | Created M_ indicator variables | Block pattern confirmed via indicator correlations |
+| 3. Clean | Fixed Survey_Comp, Mult_Loc, blanks; kept Marital U | 267 values corrected |
+| 4. Decide | Kept ALL variables; excluded only non-analytical cols | Imputing everything including 70% missing block |
+| 5. Assess | Decision tree + logistic regression tests | Mix of MAR, MCAR, and likely MNAR |
+| 6. Simple + Mgmt | Median (2), Mode (2), Stochastic (2), Regression (1) | 7 variables resolved; remaining go to MICE |
+
