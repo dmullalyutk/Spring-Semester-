@@ -14,6 +14,7 @@ Missing numerical evidence
 
 
 Problem Students: 
-William Chase Barker 
+William Hopper 
 
-Data Table supposed to be part of pivot table graph, see example 
+
+Data Table supposed to be part of bar chart, see example 

@@ -14,6 +14,7 @@ Instruction-aligned implementation:
 import math
 import os
 import time
+from collections import defaultdict
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -21,7 +22,8 @@ import pandas as pd
 import psutil
 
 
-np.random.seed(42)
+BASE_SEED = int(os.environ.get("ILNN_SEED", "42"))
+np.random.seed(BASE_SEED)
 
 
 FEATURE_COLS = ["sku", "price", "order", "duration", "category"]
@@ -217,12 +219,273 @@ def compute_raw_feature_means(train_file, chunksize=50000):
     return (sx / n).astype(np.float32)
 
 
+
+def compute_raw_feature_medians(train_file):
+    # One-pass load for exact medians on the small feature subset only.
+    df = pd.read_csv(train_file, usecols=FEATURE_COLS)
+    if df.empty:
+        raise ValueError("Training file has zero rows.")
+    return df[FEATURE_COLS].median(numeric_only=True).values.astype(np.float32)
+
+def feature_mode_uses_freq(feature_mode):
+    return feature_mode in ("log_shift_diff_freq", "log_shift_diff_freq_te")
+
+
+def feature_mode_uses_target_encoding(feature_mode):
+    return feature_mode in ("log_shift_diff_freq_te",)
+
+
+def feature_mode_uses_shift_diffs(feature_mode):
+    return feature_mode in (
+        "log_shift_diff",
+        "log_shift_diff_freq",
+        "log_shift_diff_freq_te",
+    )
+
+
+def hashed_feature_numeric_count(feature_mode, add_interactions):
+    base = None
+    if feature_mode in ("hash_sku", "hash_ids"):
+        base = 3
+    elif feature_mode == "log_skew_fe":
+        base = 8
+    elif feature_mode == "log_shift_diff":
+        base = 7
+    elif feature_mode == "log_shift_diff_freq":
+        base = 11
+    elif feature_mode == "log_shift_diff_freq_te":
+        base = 13
+    if base is None:
+        return None
+    return base + (3 if add_interactions else 0)
+
+
+def _map_with_default(values, mapping, default=0.0):
+    s = pd.Series(values.astype(np.int64), copy=False)
+    return s.map(mapping).fillna(default).to_numpy(dtype=np.float64)
+
+
+def _build_feature_artifacts_from_arrays(
+    x_raw,
+    y_raw,
+    te_smoothing=20.0,
+):
+    sku = x_raw[:, FEATURE_INDEX["sku"]].astype(np.int64)
+    cat = x_raw[:, FEATURE_INDEX["category"]].astype(np.int64)
+    y = np.asarray(y_raw, dtype=np.float64)
+
+    if y.shape[0] == 0:
+        return None
+
+    sku_count = (
+        pd.Series(sku)
+        .value_counts(sort=False)
+        .astype(np.float64)
+        .to_dict()
+    )
+    cat_count = (
+        pd.Series(cat)
+        .value_counts(sort=False)
+        .astype(np.float64)
+        .to_dict()
+    )
+
+    sku_sum = pd.Series(y).groupby(sku).sum().astype(np.float64).to_dict()
+    cat_sum = pd.Series(y).groupby(cat).sum().astype(np.float64).to_dict()
+    global_mean = float(np.mean(y))
+
+    sku_counts_arr = np.asarray(list(sku_count.values()), dtype=np.float64)
+    cat_counts_arr = np.asarray(list(cat_count.values()), dtype=np.float64)
+    sku_rare_threshold = float(max(2.0, np.percentile(sku_counts_arr, 20.0)))
+    cat_rare_threshold = float(max(2.0, np.percentile(cat_counts_arr, 20.0)))
+
+    sku_freq = {int(k): float(np.log1p(v)) for k, v in sku_count.items()}
+    cat_freq = {int(k): float(np.log1p(v)) for k, v in cat_count.items()}
+    sku_rare = {int(k): float(1.0 if v <= sku_rare_threshold else 0.0) for k, v in sku_count.items()}
+    cat_rare = {int(k): float(1.0 if v <= cat_rare_threshold else 0.0) for k, v in cat_count.items()}
+
+    smooth = float(max(te_smoothing, 1e-6))
+    sku_te = {
+        int(k): float((sku_sum.get(k, 0.0) + smooth * global_mean) / (v + smooth))
+        for k, v in sku_count.items()
+    }
+    cat_te = {
+        int(k): float((cat_sum.get(k, 0.0) + smooth * global_mean) / (v + smooth))
+        for k, v in cat_count.items()
+    }
+
+    return {
+        "global_target_mean": global_mean,
+        "te_smoothing": smooth,
+        "sku_count": {int(k): float(v) for k, v in sku_count.items()},
+        "cat_count": {int(k): float(v) for k, v in cat_count.items()},
+        "sku_sum": {int(k): float(v) for k, v in sku_sum.items()},
+        "cat_sum": {int(k): float(v) for k, v in cat_sum.items()},
+        "sku_freq": sku_freq,
+        "cat_freq": cat_freq,
+        "sku_rare": sku_rare,
+        "cat_rare": cat_rare,
+        "sku_te": sku_te,
+        "cat_te": cat_te,
+    }
+
+
+def build_feature_artifacts_from_file(train_file, chunksize=50000, te_smoothing=20.0):
+    total_y = 0.0
+    total_n = 0.0
+    sku_count = defaultdict(float)
+    cat_count = defaultdict(float)
+    sku_sum = defaultdict(float)
+    cat_sum = defaultdict(float)
+
+    total_rows = get_csv_row_count(train_file)
+    progress = ProgressBar(
+        total=estimate_total_chunks(total_rows, chunksize),
+        desc="Feat maps",
+        unit="ch",
+    )
+    try:
+        for chunk in pd.read_csv(train_file, chunksize=chunksize):
+            sku = chunk["sku"].astype(np.int64).values
+            cat = chunk["category"].astype(np.int64).values
+            y = chunk[TARGET_COL].astype(np.float64).values
+
+            total_y += float(np.sum(y))
+            total_n += float(len(y))
+
+            sku_ct = pd.Series(sku).value_counts(sort=False)
+            cat_ct = pd.Series(cat).value_counts(sort=False)
+            sku_sy = pd.Series(y).groupby(sku).sum()
+            cat_sy = pd.Series(y).groupby(cat).sum()
+
+            for k, v in sku_ct.items():
+                sku_count[int(k)] += float(v)
+            for k, v in cat_ct.items():
+                cat_count[int(k)] += float(v)
+            for k, v in sku_sy.items():
+                sku_sum[int(k)] += float(v)
+            for k, v in cat_sy.items():
+                cat_sum[int(k)] += float(v)
+
+            progress.update(1, extra=f"rows={int(total_n)}")
+    finally:
+        progress.close(extra=f"rows={int(total_n)}")
+
+    if total_n <= 0:
+        return None
+
+    global_mean = float(total_y / total_n)
+    sku_counts_arr = np.asarray(list(sku_count.values()), dtype=np.float64)
+    cat_counts_arr = np.asarray(list(cat_count.values()), dtype=np.float64)
+    sku_rare_threshold = float(max(2.0, np.percentile(sku_counts_arr, 20.0)))
+    cat_rare_threshold = float(max(2.0, np.percentile(cat_counts_arr, 20.0)))
+
+    sku_freq = {int(k): float(np.log1p(v)) for k, v in sku_count.items()}
+    cat_freq = {int(k): float(np.log1p(v)) for k, v in cat_count.items()}
+    sku_rare = {int(k): float(1.0 if v <= sku_rare_threshold else 0.0) for k, v in sku_count.items()}
+    cat_rare = {int(k): float(1.0 if v <= cat_rare_threshold else 0.0) for k, v in cat_count.items()}
+
+    smooth = float(max(te_smoothing, 1e-6))
+    sku_te = {
+        int(k): float((sku_sum.get(k, 0.0) + smooth * global_mean) / (v + smooth))
+        for k, v in sku_count.items()
+    }
+    cat_te = {
+        int(k): float((cat_sum.get(k, 0.0) + smooth * global_mean) / (v + smooth))
+        for k, v in cat_count.items()
+    }
+
+    return {
+        "global_target_mean": global_mean,
+        "te_smoothing": smooth,
+        "sku_count": {int(k): float(v) for k, v in sku_count.items()},
+        "cat_count": {int(k): float(v) for k, v in cat_count.items()},
+        "sku_sum": {int(k): float(v) for k, v in sku_sum.items()},
+        "cat_sum": {int(k): float(v) for k, v in cat_sum.items()},
+        "sku_freq": sku_freq,
+        "cat_freq": cat_freq,
+        "sku_rare": sku_rare,
+        "cat_rare": cat_rare,
+        "sku_te": sku_te,
+        "cat_te": cat_te,
+    }
+
+
+def compute_target_encoding_values(
+    x_raw,
+    feature_artifacts,
+    y_for_loo=None,
+):
+    if feature_artifacts is None:
+        raise ValueError("Target encoding requested but feature_artifacts is missing.")
+
+    sku = x_raw[:, FEATURE_INDEX["sku"]].astype(np.int64)
+    cat = x_raw[:, FEATURE_INDEX["category"]].astype(np.int64)
+    global_mean = float(feature_artifacts["global_target_mean"])
+    smooth = float(feature_artifacts["te_smoothing"])
+
+    if y_for_loo is None:
+        sku_te = _map_with_default(sku, feature_artifacts["sku_te"], default=global_mean)
+        cat_te = _map_with_default(cat, feature_artifacts["cat_te"], default=global_mean)
+        return sku_te, cat_te
+
+    y = np.asarray(y_for_loo, dtype=np.float64)
+    sku_sum = _map_with_default(sku, feature_artifacts["sku_sum"], default=0.0)
+    sku_count = _map_with_default(sku, feature_artifacts["sku_count"], default=0.0)
+    cat_sum = _map_with_default(cat, feature_artifacts["cat_sum"], default=0.0)
+    cat_count = _map_with_default(cat, feature_artifacts["cat_count"], default=0.0)
+
+    sku_denom = np.maximum(sku_count - 1.0, 0.0) + smooth
+    cat_denom = np.maximum(cat_count - 1.0, 0.0) + smooth
+    sku_te = (sku_sum - y + (smooth * global_mean)) / sku_denom
+    cat_te = (cat_sum - y + (smooth * global_mean)) / cat_denom
+    return sku_te.astype(np.float64), cat_te.astype(np.float64)
+
+
+def compute_oof_target_encoding(
+    x_raw,
+    y_raw,
+    te_smoothing=20.0,
+    folds=5,
+    seed=42,
+):
+    x = np.asarray(x_raw, dtype=np.float64)
+    y = np.asarray(y_raw, dtype=np.float64)
+    n = x.shape[0]
+    if n == 0:
+        return np.zeros(0, dtype=np.float64), np.zeros(0, dtype=np.float64)
+
+    folds = int(max(2, min(folds, n)))
+    rs = np.random.RandomState(seed)
+    perm = rs.permutation(n)
+    fold_id = np.mod(np.arange(n), folds)
+    fold_id = fold_id[np.argsort(perm)]
+
+    sku_te = np.zeros(n, dtype=np.float64)
+    cat_te = np.zeros(n, dtype=np.float64)
+    for fold in range(folds):
+        val_mask = fold_id == fold
+        tr_mask = ~val_mask
+        artifacts = _build_feature_artifacts_from_arrays(
+            x[tr_mask],
+            y[tr_mask],
+            te_smoothing=te_smoothing,
+        )
+        s, c = compute_target_encoding_values(x[val_mask], artifacts, y_for_loo=None)
+        sku_te[val_mask] = s
+        cat_te[val_mask] = c
+    return sku_te, cat_te
+
+
 def transform_features(
     x,
     feature_mode="raw",
     sku_hash_buckets=32,
     category_hash_buckets=16,
     add_interactions=False,
+    feature_artifacts=None,
+    target_for_loo=None,
+    te_oof=None,
 ):
     xt = np.asarray(x, dtype=np.float64).copy()
     if feature_mode == "log_skew":
@@ -254,6 +517,89 @@ def transform_features(
         sku_one_hot = np.zeros((n, int(sku_hash_buckets)), dtype=np.float64)
         sku_one_hot[np.arange(n), sku] = 1.0
         return np.concatenate([numeric, cat_one_hot, sku_one_hot], axis=1)
+    if feature_mode == "log_skew_fe":
+        # Engineered numeric signals + hashed id/category encodings.
+        n = xt.shape[0]
+        sku = np.mod(xt[:, FEATURE_INDEX["sku"]].astype(np.int64), int(sku_hash_buckets))
+        category = np.mod(
+            xt[:, FEATURE_INDEX["category"]].astype(np.int64), int(category_hash_buckets)
+        )
+
+        price = np.log1p(np.maximum(xt[:, FEATURE_INDEX["price"]], 0.0))
+        order = np.log1p(np.maximum(xt[:, FEATURE_INDEX["order"]], 0.0))
+        duration = np.log1p(np.maximum(xt[:, FEATURE_INDEX["duration"]], 0.0))
+        eps = 1e-3
+        ratio_pd = price / (duration + eps)
+        ratio_po = price / (order + eps)
+        ratio_od = order / (duration + eps)
+        diff_od = order - duration
+        inv_duration = 1.0 / (duration + 1.0)
+        numeric = np.stack(
+            [price, order, duration, ratio_pd, ratio_po, ratio_od, diff_od, inv_duration],
+            axis=1,
+        )
+        if add_interactions:
+            interactions = np.stack(
+                [price * duration, order * duration, price * order], axis=1
+            )
+            numeric = np.concatenate([numeric, interactions], axis=1)
+
+        cat_one_hot = np.zeros((n, int(category_hash_buckets)), dtype=np.float64)
+        cat_one_hot[np.arange(n), category] = 1.0
+        sku_one_hot = np.zeros((n, int(sku_hash_buckets)), dtype=np.float64)
+        sku_one_hot[np.arange(n), sku] = 1.0
+        return np.concatenate([numeric, cat_one_hot, sku_one_hot], axis=1)
+    if feature_mode in ("log_shift_diff", "log_shift_diff_freq", "log_shift_diff_freq_te"):
+        # Shift-robust engineered signals; optional train-only frequency and TE features.
+        n = xt.shape[0]
+        sku = np.mod(xt[:, FEATURE_INDEX["sku"]].astype(np.int64), int(sku_hash_buckets))
+        category = np.mod(
+            xt[:, FEATURE_INDEX["category"]].astype(np.int64), int(category_hash_buckets)
+        )
+        raw_sku = xt[:, FEATURE_INDEX["sku"]].astype(np.int64)
+        raw_cat = xt[:, FEATURE_INDEX["category"]].astype(np.int64)
+
+        price = np.log1p(np.maximum(xt[:, FEATURE_INDEX["price"]], 0.0))
+        order = np.log1p(np.maximum(xt[:, FEATURE_INDEX["order"]], 0.0))
+        duration = np.log1p(np.maximum(xt[:, FEATURE_INDEX["duration"]], 0.0))
+        eps = 1e-3
+        diff_od = order - duration
+        diff_po = price - order
+        diff_pd = price - duration
+        ratio_od = order / (duration + eps)
+
+        cols = [price, order, duration, diff_od, diff_po, diff_pd, ratio_od]
+        if feature_mode_uses_freq(feature_mode):
+            if feature_artifacts is None:
+                raise ValueError(f"feature_mode={feature_mode} requires feature_artifacts.")
+            sku_freq = _map_with_default(raw_sku, feature_artifacts["sku_freq"], default=0.0)
+            cat_freq = _map_with_default(raw_cat, feature_artifacts["cat_freq"], default=0.0)
+            sku_rare = _map_with_default(raw_sku, feature_artifacts["sku_rare"], default=1.0)
+            cat_rare = _map_with_default(raw_cat, feature_artifacts["cat_rare"], default=1.0)
+            cols.extend([sku_freq, cat_freq, sku_rare, cat_rare])
+        if feature_mode_uses_target_encoding(feature_mode):
+            if te_oof is not None:
+                sku_te, cat_te = te_oof
+            else:
+                sku_te, cat_te = compute_target_encoding_values(
+                    xt,
+                    feature_artifacts=feature_artifacts,
+                    y_for_loo=target_for_loo,
+                )
+            cols.extend([sku_te, cat_te])
+
+        numeric = np.stack(cols, axis=1)
+        if add_interactions:
+            interactions = np.stack(
+                [price * duration, order * duration, price * order], axis=1
+            )
+            numeric = np.concatenate([numeric, interactions], axis=1)
+
+        cat_one_hot = np.zeros((n, int(category_hash_buckets)), dtype=np.float64)
+        cat_one_hot[np.arange(n), category] = 1.0
+        sku_one_hot = np.zeros((n, int(sku_hash_buckets)), dtype=np.float64)
+        sku_one_hot[np.arange(n), sku] = 1.0
+        return np.concatenate([numeric, cat_one_hot, sku_one_hot], axis=1)
     if add_interactions:
         # Rich second-order interactions for continuous signals.
         price = xt[:, FEATURE_INDEX["price"]]
@@ -273,7 +619,6 @@ def transform_features(
         xt = np.concatenate([xt, interactions], axis=1)
     return xt
 
-
 def compute_stats(
     train_file,
     chunksize=50000,
@@ -282,6 +627,7 @@ def compute_stats(
     sku_hash_buckets=32,
     category_hash_buckets=16,
     add_interactions=False,
+    feature_artifacts=None,
 ):
     n = 0
     sx = None
@@ -297,15 +643,17 @@ def compute_stats(
     try:
         for chunk in pd.read_csv(train_file, chunksize=chunksize):
             x_raw = chunk[FEATURE_COLS].values.astype(np.float64)
+            y_raw = chunk[TARGET_COL].values.astype(np.float64)
             x = transform_features(
                 x_raw,
                 feature_mode=feature_mode,
                 sku_hash_buckets=sku_hash_buckets,
                 category_hash_buckets=category_hash_buckets,
                 add_interactions=add_interactions,
+                feature_artifacts=feature_artifacts,
+                target_for_loo=(y_raw if feature_mode_uses_target_encoding(feature_mode) else None),
             )
-            y = chunk[TARGET_COL].values.astype(np.float64)
-            y = transform_target(y, use_log_target=use_log_target)
+            y = transform_target(y_raw, use_log_target=use_log_target)
             if sx is None:
                 sx = np.zeros(x.shape[1], dtype=np.float64)
                 sx2 = np.zeros(x.shape[1], dtype=np.float64)
@@ -336,7 +684,6 @@ def compute_stats(
         np.float32(y_std),
     )
 
-
 def std_x(x, mean, std, clip=8.0):
     z = (x - mean) / std
     if clip is not None:
@@ -365,6 +712,9 @@ def preprocess_x(
     category_scale=1.0,
     category_hash_buckets=16,
     add_interactions=False,
+    feature_artifacts=None,
+    target_for_loo=None,
+    te_oof=None,
 ):
     xt = transform_features(
         x_raw,
@@ -372,10 +722,13 @@ def preprocess_x(
         sku_hash_buckets=sku_hash_buckets,
         category_hash_buckets=category_hash_buckets,
         add_interactions=add_interactions,
+        feature_artifacts=feature_artifacts,
+        target_for_loo=target_for_loo,
+        te_oof=te_oof,
     )
     z = std_x(xt, mean, std, clip=clip)
-    if feature_mode in ("hash_sku", "hash_ids"):
-        numeric_count = 3 + (3 if add_interactions else 0)
+    numeric_count = hashed_feature_numeric_count(feature_mode, add_interactions)
+    if numeric_count is not None:
         cat_start = numeric_count
         cat_end = cat_start + int(category_hash_buckets)
         sku_start = cat_end
@@ -385,9 +738,8 @@ def preprocess_x(
         z[:, FEATURE_INDEX["sku"]] = z[:, FEATURE_INDEX["sku"]] * float(sku_scale)
     return z
 
-
 def split_train_validation_from_file(
-    train_file, n_rows=120000, val_ratio=0.2, chunksize=30000, strategy="random"
+    train_file, n_rows=120000, val_ratio=0.2, chunksize=30000, strategy="random", seed=BASE_SEED
 ):
     """
     Build a tuning subset from training file only, then split into train/validation.
@@ -411,7 +763,7 @@ def split_train_validation_from_file(
             else:
                 need = n_rows - kept
                 take = min(need, len(chunk))
-            parts.append(chunk.sample(n=take, random_state=42))
+            parts.append(chunk.sample(n=take, random_state=seed))
             kept += take
             progress.update(1, extra=f"rows={kept}")
     finally:
@@ -428,7 +780,7 @@ def split_train_validation_from_file(
         train_df = df_sorted.iloc[:cut].reset_index(drop=True)
         val_df = df_sorted.iloc[cut:].reset_index(drop=True)
     else:
-        idx = np.random.RandomState(42).permutation(len(df))
+        idx = np.random.RandomState(seed).permutation(len(df))
         cut = int((1.0 - val_ratio) * len(df))
         train_idx = idx[:cut]
         val_idx = idx[cut:]
@@ -567,10 +919,11 @@ def train_on_arrays(
     min_learning_rate=1e-5,
     show_progress=False,
     progress_desc="Array train",
+    seed=BASE_SEED,
 ):
     start = time.time()
     mem = [get_memory_usage_mb()]
-    rs = np.random.RandomState(42)
+    rs = np.random.RandomState(seed)
     initial_lr = float(model.learning_rate)
     batches_per_epoch = int(math.ceil(float(x.shape[0]) / float(batch_size)))
     progress = None
@@ -639,9 +992,11 @@ def train_incremental(
     category_scale=1.0,
     category_hash_buckets=16,
     add_interactions=False,
+    feature_artifacts=None,
     lr_decay=1.0,
     min_learning_rate=1e-5,
     shuffle_buffer_chunks=1,
+    seed=BASE_SEED,
 ):
     print("\n" + "=" * 60)
     print("TRAINING PHASE")
@@ -678,7 +1033,7 @@ def train_incremental(
             unit="b",
         )
 
-        rng = np.random.RandomState(42 + epoch)
+        rng = np.random.RandomState(seed + epoch)
         chunk_buffer = []
 
         def process_chunk(chunk):
@@ -696,6 +1051,8 @@ def train_incremental(
                 category_scale=category_scale,
                 category_hash_buckets=category_hash_buckets,
                 add_interactions=add_interactions,
+                feature_artifacts=feature_artifacts,
+                target_for_loo=(y_chunk if feature_mode_uses_target_encoding(feature_mode) else None),
             )
             y_chunk = std_y(y_chunk, y_mean, y_std, use_log_target=use_log_target)
 
@@ -749,13 +1106,28 @@ def load_test_data(test_file):
     return x, y
 
 
-def align_test_feature_scales(x_test, train_feature_means):
+def align_test_feature_scales(x_test, train_feature_means, train_feature_medians=None):
     """
-    If a test feature is wildly off-scale vs train (often due to missing fixed divisor),
-    rescale by a power of 10 to match train magnitude.
+    If a test feature is wildly off-scale vs train, rescale it using train-vs-test
+    location ratio. Prefer median-ratio (more robust); fallback to power-of-10 mean-ratio.
     """
     x = x_test.copy()
     for i, name in enumerate(FEATURE_COLS):
+        used_exact = False
+        if train_feature_medians is not None:
+            tr_med = abs(float(train_feature_medians[i]))
+            if tr_med > 1e-8:
+                te_med = abs(float(np.median(x[:, i]))) + 1e-12
+                ratio = te_med / (tr_med + 1e-12)
+                if ratio > 50 or ratio < 0.02:
+                    x[:, i] = x[:, i] / ratio
+                    print(f"Adjusted test feature scale (median): {name} / {ratio:.4g}")
+                    used_exact = True
+        if used_exact:
+            continue
+        if train_feature_means is None:
+            continue
+
         tr = abs(float(train_feature_means[i])) + 1e-12
         te = abs(float(np.mean(x[:, i]))) + 1e-12
         ratio = te / tr
@@ -764,9 +1136,8 @@ def align_test_feature_scales(x_test, train_feature_means):
             factor = 10.0 ** power
             if factor != 0:
                 x[:, i] = x[:, i] / factor
-                print(f"Adjusted test feature scale: {name} / {factor:.0e}")
+                print(f"Adjusted test feature scale (power10): {name} / {factor:.0e}")
     return x
-
 
 def evaluate(
     model,
@@ -783,7 +1154,9 @@ def evaluate(
     category_scale=1.0,
     category_hash_buckets=16,
     add_interactions=False,
+    feature_artifacts=None,
     train_raw_feature_means=None,
+    train_raw_feature_medians=None,
 ):
     print("\n" + "=" * 60)
     print("EVALUATION PHASE")
@@ -791,8 +1164,12 @@ def evaluate(
     print("Evaluating on test data...")
 
     x_test, y_test = load_test_data(test_file)
-    if train_raw_feature_means is not None:
-        x_test = align_test_feature_scales(x_test, train_raw_feature_means)
+    if (train_raw_feature_means is not None) or (train_raw_feature_medians is not None):
+        x_test = align_test_feature_scales(
+            x_test,
+            train_raw_feature_means,
+            train_feature_medians=train_raw_feature_medians,
+        )
     x_test_std = preprocess_x(
         x_test,
         x_mean,
@@ -804,6 +1181,7 @@ def evaluate(
         category_scale=category_scale,
         category_hash_buckets=category_hash_buckets,
         add_interactions=add_interactions,
+        feature_artifacts=feature_artifacts,
     )
     y_pred_std = model.predict(x_test_std)
     y_pred = unstd_y(y_pred_std, y_mean, y_std, use_log_target=use_log_target)
@@ -832,7 +1210,7 @@ def sample_training_rows(train_file, n_rows=5000, chunksize=20000):
             break
         need = n_rows - kept
         take = min(need, len(chunk))
-        parts.append(chunk.sample(n=take, random_state=42))
+        parts.append(chunk.sample(n=take, random_state=BASE_SEED))
         kept += take
     if not parts:
         raise ValueError("Could not sample training rows.")
@@ -857,6 +1235,7 @@ def permutation_importance(
     category_scale=1.0,
     category_hash_buckets=16,
     add_interactions=False,
+    feature_artifacts=None,
 ):
     x_std_sample = preprocess_x(
         x_raw_sample,
@@ -869,6 +1248,7 @@ def permutation_importance(
         category_scale=category_scale,
         category_hash_buckets=category_hash_buckets,
         add_interactions=add_interactions,
+        feature_artifacts=feature_artifacts,
     )
     base = model.predict(x_std_sample)
     base_mse = float(np.mean((base - y_std_sample) ** 2))
@@ -891,6 +1271,7 @@ def permutation_importance(
                 category_scale=category_scale,
                 category_hash_buckets=category_hash_buckets,
                 add_interactions=add_interactions,
+                feature_artifacts=feature_artifacts,
             )
             p = model.predict(xp)
             m = float(np.mean((p - y_std_sample) ** 2))
@@ -915,6 +1296,7 @@ def partial_dependence_curves(
     category_scale=1.0,
     category_hash_buckets=16,
     add_interactions=False,
+    feature_artifacts=None,
 ):
     curves = {}
     for i, name in enumerate(FEATURE_COLS):
@@ -935,6 +1317,7 @@ def partial_dependence_curves(
                 category_scale=category_scale,
                 category_hash_buckets=category_hash_buckets,
                 add_interactions=add_interactions,
+                feature_artifacts=feature_artifacts,
             )
             pred_std = model.predict(x_temp_std)
             pred = unstd_y(pred_std, y_mean, y_std, use_log_target=use_log_target)
@@ -1035,7 +1418,8 @@ def hyperparameter_sweep(
         f"rows={'all' if tuning_rows is None else tuning_rows}, val_ratio={val_ratio})."
     )
     print(
-        f"Selection rule: maximize score = mean(val_R2) - {selection_std_penalty:.2f}*std(val_R2)"
+        "Selection rule: prioritize highest min-split R2, tie-break by "
+        f"mean(val_R2) - {selection_std_penalty:.2f}*std(val_R2)."
     )
 
     split_data = {}
@@ -1070,6 +1454,8 @@ def hyperparameter_sweep(
         cfg_category_scale = cfg.get("category_scale", 1.0)
         cfg_category_hash_buckets = cfg.get("category_hash_buckets", 16)
         cfg_add_interactions = cfg.get("add_interactions", False)
+        cfg_te_smoothing = cfg.get("te_smoothing", 20.0)
+        cfg_te_folds = cfg.get("te_folds", 5)
 
         seed_runs = []
         per_strategy = {}
@@ -1080,12 +1466,31 @@ def hyperparameter_sweep(
             x_val_raw = data["x_val_raw"]
             y_val_raw = data["y_val_raw"]
 
+            feature_artifacts = None
+            te_oof = None
+            if feature_mode_uses_freq(cfg_feature_mode) or feature_mode_uses_target_encoding(cfg_feature_mode):
+                feature_artifacts = _build_feature_artifacts_from_arrays(
+                    x_train_raw,
+                    y_train_raw,
+                    te_smoothing=cfg_te_smoothing,
+                )
+            if feature_mode_uses_target_encoding(cfg_feature_mode):
+                te_oof = compute_oof_target_encoding(
+                    x_train_raw,
+                    y_train_raw,
+                    te_smoothing=cfg_te_smoothing,
+                    folds=cfg_te_folds,
+                    seed=42,
+                )
+
             x_train_tf = transform_features(
                 x_train_raw,
                 feature_mode=cfg_feature_mode,
                 sku_hash_buckets=cfg_sku_hash_buckets,
                 category_hash_buckets=cfg_category_hash_buckets,
                 add_interactions=cfg_add_interactions,
+                feature_artifacts=feature_artifacts,
+                te_oof=te_oof,
             )
             x_mean = np.mean(x_train_tf, axis=0).astype(np.float32)
             x_std = np.std(x_train_tf, axis=0).astype(np.float32)
@@ -1105,6 +1510,8 @@ def hyperparameter_sweep(
                 category_scale=cfg_category_scale,
                 category_hash_buckets=cfg_category_hash_buckets,
                 add_interactions=cfg_add_interactions,
+                feature_artifacts=feature_artifacts,
+                te_oof=te_oof,
             )
             y_train = std_y(y_train_raw, y_mean, y_std, use_log_target=cfg_log)
             x_val = preprocess_x(
@@ -1118,6 +1525,7 @@ def hyperparameter_sweep(
                 category_scale=cfg_category_scale,
                 category_hash_buckets=cfg_category_hash_buckets,
                 add_interactions=cfg_add_interactions,
+                feature_artifacts=feature_artifacts,
             )
 
             for seed in sweep_seeds:
@@ -1140,6 +1548,7 @@ def hyperparameter_sweep(
                     min_learning_rate=cfg_min_lr,
                     show_progress=True,
                     progress_desc=f"{label} cfg {i}/{len(sweep_grid)} {strategy} seed {seed}",
+                    seed=seed,
                 )
                 val_metrics = evaluate_on_arrays(
                     model, x_val, y_val_raw, y_mean, y_std, use_log_target=cfg_log
@@ -1169,6 +1578,8 @@ def hyperparameter_sweep(
         r2_std = float(np.std(r2_vals))
         rmse_mean = float(np.mean(rmse_vals))
         rmse_std = float(np.std(rmse_vals))
+        split_means = [vals["val_r2"] for vals in per_strategy.values()]
+        robust_min_r2 = float(np.min(split_means)) if split_means else float("-inf")
         selection_score = float(r2_mean - (selection_std_penalty * r2_std))
 
         row = {
@@ -1177,6 +1588,7 @@ def hyperparameter_sweep(
             "val_r2_std": r2_std,
             "val_rmse": rmse_mean,
             "val_rmse_std": rmse_std,
+            "robust_min_r2": robust_min_r2,
             "selection_score": selection_score,
             "time": float(np.mean([r["time"] for r in seed_runs])),
             "max_memory": float(np.mean([r["max_memory"] for r in seed_runs])),
@@ -1194,7 +1606,8 @@ def hyperparameter_sweep(
             f"cat_scale={cfg_category_scale} hash_buckets(sku/cat)="
             f"{cfg_sku_hash_buckets}/{cfg_category_hash_buckets} "
             f"interact={cfg_add_interactions} "
-            f"-> score={row['selection_score']:.4f}, "
+            f"-> min_split_R2={row['robust_min_r2']:.4f}, "
+            f"score={row['selection_score']:.4f}, "
             f"val_R2={row['val_r2']:.4f}+/-{row['val_r2_std']:.4f}, "
             f"val_RMSE={row['val_rmse']:.4f}+/-{row['val_rmse_std']:.4f}, "
             f"time={row['time']:.2f}s"
@@ -1210,21 +1623,24 @@ def hyperparameter_sweep(
         is_better = False
         if best is None:
             is_better = True
-        elif row["selection_score"] > best["selection_score"] + 1e-12:
+        elif row["robust_min_r2"] > best["robust_min_r2"] + 1e-12:
             is_better = True
-        elif (
-            abs(row["selection_score"] - best["selection_score"]) <= 1e-12
-            and row["val_r2"] > best["val_r2"]
-        ):
-            is_better = True
+        elif abs(row["robust_min_r2"] - best["robust_min_r2"]) <= 1e-12:
+            if row["selection_score"] > best["selection_score"] + 1e-12:
+                is_better = True
+            elif (
+                abs(row["selection_score"] - best["selection_score"]) <= 1e-12
+                and row["val_r2"] > best["val_r2"]
+            ):
+                is_better = True
         if is_better:
             best = row
 
         cfg_bar.update(
             1,
             extra=(
-                f"best_score={best['selection_score']:.4f} "
-                f"best_R2={best['val_r2']:.4f}"
+                f"best_min={best['robust_min_r2']:.4f} "
+                f"best_score={best['selection_score']:.4f}"
                 if best is not None
                 else ""
             ),
@@ -1232,7 +1648,7 @@ def hyperparameter_sweep(
 
     cfg_bar.close(
         extra=(
-            f"best_score={best['selection_score']:.4f} best_R2={best['val_r2']:.4f}"
+            f"best_min={best['robust_min_r2']:.4f} best_score={best['selection_score']:.4f}"
             if best is not None
             else ""
         )
@@ -1255,11 +1671,11 @@ def hyperparameter_sweep(
         f"hash_buckets={best['config'].get('sku_hash_buckets', 32)}/"
         f"{best['config'].get('category_hash_buckets', 16)}, "
         f"interact={best['config'].get('add_interactions', False)}, "
+        f"min_split_R2={best['robust_min_r2']:.4f}, "
         f"score={best['selection_score']:.4f}, "
         f"val_R2={best['val_r2']:.4f}+/-{best['val_r2_std']:.4f}"
     )
     return best, results
-
 
 def write_experiment_changelog(
     path,
@@ -1277,7 +1693,7 @@ def write_experiment_changelog(
     lines.append("")
     lines.append(f"Validation Strategy: {val_strategies}")
     lines.append(
-        f"Selection Rule: mean(val_R2) - {selection_std_penalty:.2f}*std(val_R2)"
+        f"Selection Rule: prioritize min-split val_R2, tie by mean(val_R2)-{selection_std_penalty:.2f}*std(val_R2)"
     )
     lines.append("")
     lines.append("### Sweep Results (train/validation on pricing.csv only)")
@@ -1296,7 +1712,7 @@ def write_experiment_changelog(
                 f"cat_scale={cfg.get('category_scale', 1.0)}, "
                 f"hash_buckets={cfg.get('sku_hash_buckets', 32)}/{cfg.get('category_hash_buckets', 16)}, "
                 f"interact={cfg.get('add_interactions', False)} "
-                f"=> score={row.get('selection_score', row['val_r2']):.4f}, "
+                f"=> min_split_R2={row.get('robust_min_r2', row['val_r2']):.4f}, score={row.get('selection_score', row['val_r2']):.4f}, "
                 f"val_R2={row['val_r2']:.4f}+/-{row.get('val_r2_std', 0.0):.4f}, "
                 f"val_RMSE={row['val_rmse']:.4f}+/-{row.get('val_rmse_std', 0.0):.4f}, "
                 f"time={row['time']:.2f}s, max_mem={row['max_memory']:.2f}MB"
@@ -1322,7 +1738,7 @@ def write_experiment_changelog(
         f"loss={best_config.get('loss_type', 'mse')}, wd={best_config.get('weight_decay', 0.0)}, "
         f"feat={best_config.get('feature_mode', 'raw')}, sku_scale={best_config.get('sku_scale', 1.0)}, "
         f"cat_scale={best_config.get('category_scale', 1.0)}, "
-        f"score={best_config.get('selection_score', float('nan')):.4f}, "
+        f"min_split_R2={best_config.get('robust_min_r2', float('nan')):.4f}, score={best_config.get('selection_score', float('nan')):.4f}, "
         f"hash_buckets={best_config.get('sku_hash_buckets', 32)}/"
         f"{best_config.get('category_hash_buckets', 16)}, "
         f"interact={best_config.get('add_interactions', False)}"
@@ -1355,53 +1771,48 @@ def main():
 
     # Tunable training configuration.
     batch_size = 64
-    epochs = 18
-    chunk_rows = 50000
-    hidden_sizes = (192, 96, 48)
-    learning_rate = 8e-4
-    x_clip = 9.0
+    epochs = 12
+    chunk_rows = 60000
+    hidden_sizes = (160, 80, 40)
+    learning_rate = 7.5e-4
+    x_clip = 7.0
     use_log_target = False
     loss_type = "mse"
     huber_delta = 1.0
-    weight_decay = 0.0
-    lr_decay = 0.992
+    weight_decay = 1e-6
+    lr_decay = 0.996
     min_learning_rate = 1e-5
-    feature_mode = "log_skew"
-    sku_scale = 0.5
+    feature_mode = "log_shift_diff"
+    sku_scale = 0.00
     sku_hash_buckets = 32
-    category_scale = 1.0
+    category_scale = 0.55
     category_hash_buckets = 16
     add_interactions = True
-    shuffle_buffer_chunks = 16
+    te_smoothing = 20.0
+    te_folds = 5
+    shuffle_buffer_chunks = 8
+    run_interpretability = False
 
-    # Sweep is train-only (uses a validation split from pricing.csv, not pricing_test.csv).
-    run_sweep = True
+    # Robustness-first train-only sweep (short training horizon).
+    run_sweep = False
+    run_focused_sweep = False
     val_strategy = ("sku_shift", "random")
-    selection_std_penalty = 0.5
-    sweep_seeds = (101, 202, 303)
-    tuning_rows = None
+    selection_std_penalty = 0.7
+    sweep_seeds = (101, 202)
+    tuning_rows = 180000
     tuning_val_ratio = 0.2
     sweep_grid = [
-        # Baseline + tiny regularization sweep.
-        {"batch_size": 48, "epochs": 22, "learning_rate": 0.0007, "use_log_target": False, "x_clip": 9.0, "hidden_sizes": (192, 96, 48), "loss_type": "mse", "weight_decay": 0.0, "feature_mode": "log_skew", "sku_scale": 0.5, "category_scale": 1.0, "add_interactions": True, "lr_decay": 0.993, "min_learning_rate": 1e-5},
-        {"batch_size": 48, "epochs": 22, "learning_rate": 0.0007, "use_log_target": False, "x_clip": 9.0, "hidden_sizes": (192, 96, 48), "loss_type": "mse", "weight_decay": 1e-6, "feature_mode": "log_skew", "sku_scale": 0.5, "category_scale": 1.0, "add_interactions": True, "lr_decay": 0.993, "min_learning_rate": 1e-5},
-        {"batch_size": 48, "epochs": 22, "learning_rate": 0.0007, "use_log_target": False, "x_clip": 9.0, "hidden_sizes": (192, 96, 48), "loss_type": "mse", "weight_decay": 3e-6, "feature_mode": "log_skew", "sku_scale": 0.5, "category_scale": 1.0, "add_interactions": True, "lr_decay": 0.993, "min_learning_rate": 1e-5},
-        {"batch_size": 48, "epochs": 22, "learning_rate": 0.0007, "use_log_target": False, "x_clip": 9.0, "hidden_sizes": (192, 96, 48), "loss_type": "mse", "weight_decay": 1e-5, "feature_mode": "log_skew", "sku_scale": 0.5, "category_scale": 1.0, "add_interactions": True, "lr_decay": 0.993, "min_learning_rate": 1e-5},
-        # Capacity sweep with same schedule.
-        {"batch_size": 48, "epochs": 22, "learning_rate": 0.0007, "use_log_target": False, "x_clip": 9.0, "hidden_sizes": (160, 80, 40), "loss_type": "mse", "weight_decay": 1e-6, "feature_mode": "log_skew", "sku_scale": 0.5, "category_scale": 1.0, "add_interactions": True, "lr_decay": 0.993, "min_learning_rate": 1e-5},
-        {"batch_size": 48, "epochs": 22, "learning_rate": 0.0007, "use_log_target": False, "x_clip": 9.0, "hidden_sizes": (128, 64, 32), "loss_type": "mse", "weight_decay": 1e-6, "feature_mode": "log_skew", "sku_scale": 0.5, "category_scale": 1.0, "add_interactions": True, "lr_decay": 0.993, "min_learning_rate": 1e-5},
+        # Control: current promoted MSE config.
+        {"batch_size": 64, "epochs": 12, "learning_rate": 0.00075, "use_log_target": False, "x_clip": 8.0, "hidden_sizes": (160, 80, 40), "loss_type": "mse", "huber_delta": 1.0, "weight_decay": 1e-6, "feature_mode": "log_skew_fe", "sku_scale": 0.2, "category_scale": 0.7, "sku_hash_buckets": 32, "category_hash_buckets": 16, "add_interactions": True, "lr_decay": 0.996, "min_learning_rate": 1e-5, "te_smoothing": 20.0, "te_folds": 5},
+        # Huber with default delta.
+        {"batch_size": 64, "epochs": 12, "learning_rate": 0.00075, "use_log_target": False, "x_clip": 8.0, "hidden_sizes": (160, 80, 40), "loss_type": "huber", "huber_delta": 1.0, "weight_decay": 1e-6, "feature_mode": "log_skew_fe", "sku_scale": 0.2, "category_scale": 0.7, "sku_hash_buckets": 32, "category_hash_buckets": 16, "add_interactions": True, "lr_decay": 0.996, "min_learning_rate": 1e-5, "te_smoothing": 20.0, "te_folds": 5},
+        # Huber with tighter delta.
+        {"batch_size": 64, "epochs": 12, "learning_rate": 0.00075, "use_log_target": False, "x_clip": 8.0, "hidden_sizes": (160, 80, 40), "loss_type": "huber", "huber_delta": 0.7, "weight_decay": 1e-6, "feature_mode": "log_skew_fe", "sku_scale": 0.2, "category_scale": 0.7, "sku_hash_buckets": 32, "category_hash_buckets": 16, "add_interactions": True, "lr_decay": 0.996, "min_learning_rate": 1e-5, "te_smoothing": 20.0, "te_folds": 5},
     ]
-    focused_grid = [
-        # Epoch-window tuning around strongest setup.
-        {"batch_size": 48, "epochs": 18, "learning_rate": 0.0007, "use_log_target": False, "x_clip": 9.0, "hidden_sizes": (192, 96, 48), "loss_type": "mse", "weight_decay": 1e-6, "feature_mode": "log_skew", "sku_scale": 0.5, "category_scale": 1.0, "add_interactions": True, "lr_decay": 0.993, "min_learning_rate": 1e-5},
-        {"batch_size": 48, "epochs": 22, "learning_rate": 0.0007, "use_log_target": False, "x_clip": 9.0, "hidden_sizes": (192, 96, 48), "loss_type": "mse", "weight_decay": 1e-6, "feature_mode": "log_skew", "sku_scale": 0.5, "category_scale": 1.0, "add_interactions": True, "lr_decay": 0.993, "min_learning_rate": 1e-5},
-        {"batch_size": 48, "epochs": 26, "learning_rate": 0.0007, "use_log_target": False, "x_clip": 9.0, "hidden_sizes": (192, 96, 48), "loss_type": "mse", "weight_decay": 1e-6, "feature_mode": "log_skew", "sku_scale": 0.5, "category_scale": 1.0, "add_interactions": True, "lr_decay": 0.993, "min_learning_rate": 1e-5},
-        {"batch_size": 48, "epochs": 18, "learning_rate": 0.0007, "use_log_target": False, "x_clip": 9.0, "hidden_sizes": (192, 96, 48), "loss_type": "mse", "weight_decay": 3e-6, "feature_mode": "log_skew", "sku_scale": 0.5, "category_scale": 1.0, "add_interactions": True, "lr_decay": 0.993, "min_learning_rate": 1e-5},
-        {"batch_size": 48, "epochs": 22, "learning_rate": 0.0007, "use_log_target": False, "x_clip": 9.0, "hidden_sizes": (192, 96, 48), "loss_type": "mse", "weight_decay": 3e-6, "feature_mode": "log_skew", "sku_scale": 0.5, "category_scale": 1.0, "add_interactions": True, "lr_decay": 0.993, "min_learning_rate": 1e-5},
-        {"batch_size": 48, "epochs": 26, "learning_rate": 0.0007, "use_log_target": False, "x_clip": 9.0, "hidden_sizes": (192, 96, 48), "loss_type": "mse", "weight_decay": 3e-6, "feature_mode": "log_skew", "sku_scale": 0.5, "category_scale": 1.0, "add_interactions": True, "lr_decay": 0.993, "min_learning_rate": 1e-5},
-    ]
+    focused_grid = []
     sweep_sections = []
     selection_score = float("nan")
+    selection_min_split = float("nan")
 
     if run_sweep:
         coarse_best, coarse_results = hyperparameter_sweep(
@@ -1416,25 +1827,26 @@ def main():
             selection_std_penalty=selection_std_penalty,
         )
         sweep_sections.append({"label": "Coarse Sweep", "results": coarse_results})
+        best = coarse_best
 
-        focused_best, focused_results = hyperparameter_sweep(
-            train_file=train_file,
-            hidden_sizes=coarse_best["config"].get("hidden_sizes", hidden_sizes),
-            sweep_grid=focused_grid,
-            label="Focused Sweep",
-            val_strategy=val_strategy,
-            sweep_seeds=sweep_seeds,
-            tuning_rows=tuning_rows,
-            val_ratio=tuning_val_ratio,
-            selection_std_penalty=selection_std_penalty,
-        )
-        sweep_sections.append({"label": "Focused Sweep", "results": focused_results})
+        if run_focused_sweep and focused_grid:
+            focused_best, focused_results = hyperparameter_sweep(
+                train_file=train_file,
+                hidden_sizes=coarse_best["config"].get("hidden_sizes", hidden_sizes),
+                sweep_grid=focused_grid,
+                label="Focused Sweep",
+                val_strategy=val_strategy,
+                sweep_seeds=sweep_seeds,
+                tuning_rows=tuning_rows,
+                val_ratio=tuning_val_ratio,
+                selection_std_penalty=selection_std_penalty,
+            )
+            sweep_sections.append({"label": "Focused Sweep", "results": focused_results})
 
-        best = (
-            focused_best
-            if focused_best["selection_score"] >= coarse_best["selection_score"]
-            else coarse_best
-        )
+            if focused_best["selection_score"] >= coarse_best["selection_score"]:
+                best = focused_best
+        else:
+            print("Focused sweep skipped (run_focused_sweep=False).")
         batch_size = best["config"]["batch_size"]
         epochs = best["config"]["epochs"]
         learning_rate = best["config"]["learning_rate"]
@@ -1452,7 +1864,10 @@ def main():
         category_scale = best["config"].get("category_scale", 1.0)
         category_hash_buckets = best["config"].get("category_hash_buckets", 16)
         add_interactions = best["config"].get("add_interactions", False)
+        te_smoothing = best["config"].get("te_smoothing", te_smoothing)
+        te_folds = best["config"].get("te_folds", te_folds)
         selection_score = best.get("selection_score", best.get("val_r2", float("nan")))
+        selection_min_split = best.get("robust_min_r2", best.get("val_r2", float("nan")))
         print(
             f"\nUsing best tuned config for full training: "
             f"batch={batch_size}, epochs={epochs}, lr={learning_rate:.5f}, "
@@ -1461,10 +1876,18 @@ def main():
             f"loss={loss_type}, wd={weight_decay}, feat={feature_mode}, "
             f"sku_scale={sku_scale}, cat_scale={category_scale}, "
             f"hash_buckets={sku_hash_buckets}/{category_hash_buckets}, "
-            f"interact={add_interactions}, score={selection_score:.4f}"
+            f"interact={add_interactions}, min_split={selection_min_split:.4f}, score={selection_score:.4f}"
         )
 
     print(f"\nInitial memory usage: {get_memory_usage_mb():.2f} MB")
+    feature_artifacts = None
+    if feature_mode_uses_freq(feature_mode) or feature_mode_uses_target_encoding(feature_mode):
+        print("Building train-only feature artifacts (freq/target-encoding maps)...")
+        feature_artifacts = build_feature_artifacts_from_file(
+            train_file,
+            chunksize=chunk_rows,
+            te_smoothing=te_smoothing,
+        )
     print("Computing train-set feature/target statistics...")
     x_mean, x_std, y_mean, y_std = compute_stats(
         train_file,
@@ -1473,8 +1896,10 @@ def main():
         sku_hash_buckets=sku_hash_buckets,
         category_hash_buckets=category_hash_buckets,
         add_interactions=add_interactions,
+        feature_artifacts=feature_artifacts,
     )
-    train_raw_feature_means = compute_raw_feature_means(train_file)
+    train_raw_feature_means = None
+    train_raw_feature_medians = compute_raw_feature_medians(train_file)
     print("Feature means:", np.round(x_mean, 4))
     print("Feature stds: ", np.round(x_std, 4))
     print(f"Target mean/std: {y_mean:.4f} / {y_std:.4f}")
@@ -1510,9 +1935,11 @@ def main():
         category_scale=category_scale,
         category_hash_buckets=category_hash_buckets,
         add_interactions=add_interactions,
+        feature_artifacts=feature_artifacts,
         lr_decay=lr_decay,
         min_learning_rate=min_learning_rate,
         shuffle_buffer_chunks=shuffle_buffer_chunks,
+        seed=BASE_SEED,
     )
 
     print("\nTraining completed.")
@@ -1535,66 +1962,78 @@ def main():
         category_scale=category_scale,
         category_hash_buckets=category_hash_buckets,
         add_interactions=add_interactions,
+        feature_artifacts=feature_artifacts,
         train_raw_feature_means=train_raw_feature_means,
+        train_raw_feature_medians=train_raw_feature_medians,
     )
 
-    print("\n" + "=" * 60)
-    print("GENERATING PLOTS")
-    print("=" * 60)
+    learning_curve_path = None
+    importance_path = None
+    pdp_path = None
+    importances = {}
 
-    learning_curve_path = os.path.join(output_dir, "learning_curve.png")
-    importance_path = os.path.join(output_dir, "variable_importance.png")
-    pdp_path = os.path.join(output_dir, "partial_dependence.png")
+    if run_interpretability:
+        print("\n" + "=" * 60)
+        print("GENERATING PLOTS")
+        print("=" * 60)
 
-    plot_learning_curve(
-        instances=model.instances_history,
-        mse_history=model.mse_history,
-        output_path=learning_curve_path,
-        window=200,
-    )
+        learning_curve_path = os.path.join(output_dir, "learning_curve.png")
+        importance_path = os.path.join(output_dir, "variable_importance.png")
+        pdp_path = os.path.join(output_dir, "partial_dependence.png")
 
-    # Use training sample for interpretation to avoid any test leakage.
-    x_raw_sample, y_raw_sample = sample_training_rows(train_file, n_rows=5000)
-    y_std_sample = std_y(y_raw_sample, y_mean, y_std, use_log_target=use_log_target)
+        plot_learning_curve(
+            instances=model.instances_history,
+            mse_history=model.mse_history,
+            output_path=learning_curve_path,
+            window=200,
+        )
 
-    print("\nCalculating variable importance...")
-    importances = permutation_importance(
-        model=model,
-        x_raw_sample=x_raw_sample,
-        y_std_sample=y_std_sample,
-        x_mean=x_mean,
-        x_std=x_std,
-        names=FEATURE_COLS,
-        repeats=5,
-        x_clip=x_clip,
-        feature_mode=feature_mode,
-        sku_scale=sku_scale,
-        sku_hash_buckets=sku_hash_buckets,
-        category_scale=category_scale,
-        category_hash_buckets=category_hash_buckets,
-        add_interactions=add_interactions,
-    )
-    plot_importance(importances, importance_path)
+        # Use training sample for interpretation to avoid any test leakage.
+        x_raw_sample, y_raw_sample = sample_training_rows(train_file, n_rows=5000)
+        y_std_sample = std_y(y_raw_sample, y_mean, y_std, use_log_target=use_log_target)
 
-    print("\nGenerating partial dependence plots...")
-    curves = partial_dependence_curves(
-        model=model,
-        x_raw_sample=x_raw_sample,
-        x_mean=x_mean,
-        x_std=x_std,
-        y_mean=y_mean,
-        y_std=y_std,
-        grid_points=40,
-        x_clip=x_clip,
-        use_log_target=use_log_target,
-        feature_mode=feature_mode,
-        sku_scale=sku_scale,
-        sku_hash_buckets=sku_hash_buckets,
-        category_scale=category_scale,
-        category_hash_buckets=category_hash_buckets,
-        add_interactions=add_interactions,
-    )
-    plot_partial_dependence(curves, pdp_path)
+        print("\nCalculating variable importance...")
+        importances = permutation_importance(
+            model=model,
+            x_raw_sample=x_raw_sample,
+            y_std_sample=y_std_sample,
+            x_mean=x_mean,
+            x_std=x_std,
+            names=FEATURE_COLS,
+            repeats=5,
+            x_clip=x_clip,
+            feature_mode=feature_mode,
+            sku_scale=sku_scale,
+            sku_hash_buckets=sku_hash_buckets,
+            category_scale=category_scale,
+            category_hash_buckets=category_hash_buckets,
+            add_interactions=add_interactions,
+            feature_artifacts=feature_artifacts,
+        )
+        plot_importance(importances, importance_path)
+
+        print("\nGenerating partial dependence plots...")
+        curves = partial_dependence_curves(
+            model=model,
+            x_raw_sample=x_raw_sample,
+            x_mean=x_mean,
+            x_std=x_std,
+            y_mean=y_mean,
+            y_std=y_std,
+            grid_points=40,
+            x_clip=x_clip,
+            use_log_target=use_log_target,
+            feature_mode=feature_mode,
+            sku_scale=sku_scale,
+            sku_hash_buckets=sku_hash_buckets,
+            category_scale=category_scale,
+            category_hash_buckets=category_hash_buckets,
+            add_interactions=add_interactions,
+            feature_artifacts=feature_artifacts,
+        )
+        plot_partial_dependence(curves, pdp_path)
+    else:
+        print("\nSkipping interpretation plots for faster iteration (run_interpretability=False).")
 
     print("\n" + "=" * 60)
     print("SUMMARY")
@@ -1617,22 +2056,27 @@ def main():
     print(f"SKU Hash Buckets: {sku_hash_buckets}")
     print(f"Category Hash Buckets: {category_hash_buckets}")
     print(f"Use Interactions: {add_interactions}")
+    print(f"TE Smoothing: {te_smoothing}")
+    print(f"TE Folds: {te_folds}")
     if run_sweep:
-        print(f"Selection Score (mean-penalty*std): {selection_score:.4f}")
+        print(f"Selection Min-Split R2: {selection_min_split:.4f}")
+        print(f"Selection Tie-Break Score (mean-penalty*std): {selection_score:.4f}")
     print(f"Total Instances Trained: {model.instances_trained}")
     print(f"Training Time: {train_stats['training_time']:.2f} seconds")
     print(f"Max Memory Usage: {train_stats['max_memory']:.2f} MB")
     print(f"Test R2: {eval_results['r2']:.4f}")
     print(f"Test RMSE: {eval_results['rmse']:.4f}")
 
-    print("\nVariable Importances:")
-    for name, val in sorted(importances.items(), key=lambda kv: kv[1], reverse=True):
-        print(f"  {name}: {val:.8f} ({val:.3e})")
+    if importances:
+        print("\nVariable Importances:")
+        for name, val in sorted(importances.items(), key=lambda kv: kv[1], reverse=True):
+            print(f"  {name}: {val:.8f} ({val:.3e})")
 
-    print("\nOutput files generated:")
-    print(f"  - {learning_curve_path}")
-    print(f"  - {importance_path}")
-    print(f"  - {pdp_path}")
+    if run_interpretability:
+        print("\nOutput files generated:")
+        print(f"  - {learning_curve_path}")
+        print(f"  - {importance_path}")
+        print(f"  - {pdp_path}")
 
     changelog_path = os.path.join(output_dir, "EXPERIMENT_CHANGELOG.md")
     write_experiment_changelog(
@@ -1656,6 +2100,9 @@ def main():
             "category_scale": category_scale,
             "category_hash_buckets": category_hash_buckets,
             "add_interactions": add_interactions,
+            "te_smoothing": te_smoothing,
+            "te_folds": te_folds,
+            "robust_min_r2": selection_min_split,
             "selection_score": selection_score,
         },
         final_results=eval_results,
@@ -1670,3 +2117,9 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+
+
+
+

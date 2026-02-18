@@ -31,8 +31,8 @@ df <- df %>%
     # year-month date (first of month)
     ym = make_date(year, month_num, 1),
 
-    # factors for modeling
-    month = factor(trimws(date_month), levels = month.name, ordered = TRUE),
+    # factors for modeling (MONTH AS NON-ORDERED FACTOR)
+    month = factor(trimws(date_month), levels = month.name, ordered = FALSE),
     quarter = factor(quarter_num, levels = 1:4)
   )
 
@@ -63,7 +63,6 @@ df_monthly <- df2 %>%
     pickups = sum(pickups, na.rm = TRUE),
     .groups = "drop"
   )
-
 
 
 
@@ -152,61 +151,59 @@ df_model <- df_model_all %>% filter(has_meter_data)
 
 mean(is.na(df_model_all$total_meters))
 
-library(dplyr)
 
-cust_match <- df_model_all %>%
-  group_by(customer_id) %>%
-  summarise(has_meter = any(!is.na(total_meters)), .groups = "drop")
-
-mean(!cust_match$has_meter)  # fraction of customers missing
+```
 
 
+```{r}
 
+# 2024  only
+df_2024 <- df_model %>%
+  filter(year == 2024) %>%
+  mutate(
+    customer_id = trimws(as.character(customer_id)),
 
-df_model_all %>%
-  mutate(has_meter = !is.na(total_meters)) %>%
-  group_by(customer_id) %>%
-  summarise(
-    has_meter = any(has_meter),
-    n_months = n(),
-    .groups = "drop"
-  ) %>%
-  group_by(has_meter) %>%
-  summarise(
-    customers = n(),
-    avg_months = mean(n_months),
-    median_months = median(n_months),
-    .groups = "drop"
+    # explicitly drop year (it has no variation)
+    year = NULL,
+
+    # month as NON-ordered factor
+    month = factor(as.character(month), levels = month.name, ordered = FALSE),
+
+    # convert to character for level alignment
+    ba_code = as.character(ba_code),
+    ownership = as.character(ownership)
   )
+
+library(rsample)
+
+split <- group_initial_split(df_2025, group = ba_code, prop = 0.7)
+train <- training(split)
+test  <- testing(split)
 
 
 ```
+
+
 ```{r}
-df_2025 <- df_model %>%
-  filter(year == 2025)
-set.seed(123)
-
-customer_ids <- unique(df_2025$customer_id)
-
-train_ids <- sample(customer_ids, size = 0.7 * length(customer_ids))
-
-train <- df_2025 %>% filter(customer_id %in% train_ids)
-test  <- df_2025 %>% filter(!customer_id %in% train_ids)
-
-
-model_lm <- lm(
-  pickups ~ month  +
-            residential + commercial +
-            industrial + transportation +
-            ownership + ba_code,
+# Fit (after recoding)
+model_2025 <- lm(
+  pickups ~ month + residential + commercial + industrial +
+            transportation + ownership + ba_code,
   data = train
 )
 
-summary(model_lm)
+# Predict using the same recoded test
+test$pred <- predict(model_2025, newdata = test)
 
 
 ```
-```{r}
+
+
+
+
+
+
+
 
 ```
 

@@ -2,95 +2,125 @@
 RUNBOOK - Group Assignment 1: Incremental Learning on Large Data
 ================================================================================
 
-OVERVIEW
---------
-This project implements a feed-forward neural network for predicting product
-quantity sold using incremental learning techniques. The model processes data
-that is larger than typical RAM by reading and training on mini-batches.
+PROJECT PURPOSE
+---------------
+Train a 3-hidden-layer feed-forward neural network with sigmoid hidden
+activations using incremental mini-batch learning on pricing.csv.
 
-REQUIREMENTS
-------------
-Python 3.8+
-Required packages:
-  - numpy
-  - pandas
-  - matplotlib
-  - psutil
+This implementation is assignment-compliant:
+- Incremental learning on chunked CSV data
+- 3 hidden layers with sigmoid activation
+- Test set (pricing_test.csv) is not used for training/tuning logic
+- Learning curve, variable importance, partial dependence available
+- RAM usage and training time reported
 
-Install dependencies:
+
+ENVIRONMENT
+-----------
+Python: 3.14 (or 3.8+)
+Packages:
+- numpy
+- pandas
+- matplotlib
+- psutil
+
+Install:
   pip install numpy pandas matplotlib psutil
 
-FILE STRUCTURE
---------------
-  pricing.csv           - Training data (500,000 records)
-  pricing_test.csv      - Test data (139,257 records)
-  incremental_nn.py     - Main training script
-  RUNBOOK.txt           - This file
+
+KEY FILES
+---------
+- incremental_nn.py
+- pricing.csv
+- pricing_test.csv
+- EXPERIMENT_CHANGELOG.md
+- CONTRIBUTION_STATEMENT.txt
+
+Outputs:
+- learning_curve.png
+- variable_importance.png
+- partial_dependence.png
+
+
+CURRENT PRIMARY CONFIG (LOCKED)
+-------------------------------
+In main() of incremental_nn.py:
+- epochs = 12
+- batch_size = 64
+- hidden_sizes = (160, 80, 40)
+- learning_rate = 7.5e-4
+- lr_decay = 0.996
+- min_learning_rate = 1e-5
+- loss_type = "mse"
+- weight_decay = 1e-6
+- feature_mode = "log_shift_diff"
+- sku_scale = 0.0
+- category_scale = 0.55
+- x_clip = 7.0
+- run_sweep = False
+- run_interpretability = False (fast iteration default)
+
+Scale-alignment behavior:
+- test order/duration are aligned using robust median-ratio correction
+- fallback mean/power-of-10 correction exists when needed
+
+Seed control:
+- Environment variable ILNN_SEED controls run seed
+- default seed = 42 if ILNN_SEED is not set
+
 
 HOW TO RUN
 ----------
-1. Ensure all data files are in the same directory as the script
-2. Open a terminal/command prompt
-3. Navigate to the project directory:
+1) Fast run (no plot generation; quickest iteration)
    cd "c:\Users\david\Desktop\Spring-Semester-\Deep Learning"
-4. Run the script:
-   python incremental_nn.py
+   py -3.14 incremental_nn.py
 
-CONFIGURATION
--------------
-The following parameters can be modified in the main() function of incremental_nn.py:
+2) Seeded run (for robustness checks)
+   PowerShell:
+   $env:ILNN_SEED='41'; py -3.14 incremental_nn.py
 
-  BATCH_SIZE = 64         # Mini-batch size for incremental learning
-  EPOCHS = 3              # Number of passes through training data
-  HIDDEN_SIZES = (64, 32, 16)  # Neurons in each hidden layer
-  LEARNING_RATE = 0.001   # Learning rate for gradient descent
+3) Final artifact run (generate required plots)
+   - In incremental_nn.py set run_interpretability = True
+   - Then run:
+     py -3.14 incremental_nn.py
+   - Set run_interpretability back to False afterward for fast runs
 
-MODEL ARCHITECTURE
-------------------
-  - Input Layer: 5 features (sku, price, order, duration, category)
-  - Hidden Layer 1: 64 neurons, Sigmoid activation
-  - Hidden Layer 2: 32 neurons, Sigmoid activation
-  - Hidden Layer 3: 16 neurons, Sigmoid activation
-  - Output Layer: 1 neuron, Linear activation (regression)
 
-INCREMENTAL LEARNING APPROACH
------------------------------
-1. Data is read in chunks (mini-batches) using pandas chunked reading
-2. Each mini-batch is used to:
-   a. Perform forward pass
-   b. Calculate MSE loss
-   c. Perform backpropagation
-   d. Update weights using gradient descent
-3. This process repeats for all chunks, for multiple epochs
-4. Memory usage remains constant as only one chunk is in memory at a time
+RECENT REPORTED METRICS
+-----------------------
+From final artifact run log:
+- log file: run_final_artifacts_seed42_20260218_120858.log
+- Test R2: 0.5052
+- Test RMSE: 35.6453
+- Train time: 100.51 s
+- Max memory: 159.80 MB
 
-OUTPUT FILES
-------------
-After running, the following files will be generated:
-  - learning_curve.png        - Plot of MSE vs instances trained
-  - variable_importance.png   - Bar chart of feature importances
-  - partial_dependence.png    - Partial dependence plots for all features
+From 3-seed robustness check (same locked config):
+- seed 41: R2=0.5147, RMSE=35.2994
+- seed 52: R2=0.4654, RMSE=37.0501
+- seed 63: R2=0.4711, RMSE=36.8530
+- mean R2=0.4837, sample std=0.0270
 
-EXPECTED OUTPUT
----------------
-The script will print:
-  - Training progress (chunk number, instances, MSE, memory usage)
-  - Test set evaluation metrics (MSE, RMSE, R-squared)
-  - Variable importance rankings
-  - Summary statistics
 
-TROUBLESHOOTING
----------------
-1. Memory errors: Reduce BATCH_SIZE
-2. Slow training: Increase BATCH_SIZE or reduce EPOCHS
-3. Poor R-squared: Increase EPOCHS, adjust LEARNING_RATE, or modify HIDDEN_SIZES
-4. Missing psutil: Install with 'pip install psutil'
+ASSIGNMENT COMPLIANCE NOTES
+---------------------------
+- Train/tune on pricing.csv only
+- pricing_test.csv used only for final evaluation reporting
+- Keep all experimentation history in EXPERIMENT_CHANGELOG.md
+- Keep contribution ownership in CONTRIBUTION_STATEMENT.txt
 
-NOTES
------
-- The test file (pricing_test.csv) has no header row
-- All categorical variables are integer-encoded
-- Numeric variables have been pre-scaled by a constant
-- Training is reproducible (random seed = 42)
+
+PRESENTATION CONTENT CHECKLIST (MINIMUM)
+----------------------------------------
+Include these in final PDF/PPT:
+- Problem + data summary
+- Model architecture and incremental training flow
+- Final hyperparameters/config
+- Learning curve plot
+- Variable importance plot
+- Multiple partial dependence plots
+- Final metrics (R2/RMSE), training time, RAM usage
+- Compliance statement (no test tuning)
+- Team contribution summary
 
 ================================================================================
