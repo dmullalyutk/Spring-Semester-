@@ -23,5 +23,47 @@ could we use current customer meter data to accurately predict current pickup da
 
 
 
+AMR to AMI transition (who is upgrading and why)
+
+
+map strong vs weak penetration, overlay with meterage, find target rich areas
+
+time series ideas 
+what kind of customers are growing/shrinking 
+
+leading indicators? 
+seasonality? 
+
+PNL: 
+
+Map for how to read PNL 
+
+Revenue per product unit 
+
+Gross Profit 
+
+Operating Expenses 30 -40 % goal 
+
+Field decom and field service harder to estimate 
+
+help with putting a new facility would affect PNL
+
+Mix in territory estimate ~ assume from
+
+find a building maybe, 
+
+
+To predict, populations, age of equipment, 
+
+census data on demographics
+
+
+master the data: 
+
+complications: 
+
+Service Area, utility id linked to ID
+
+Small problem first - state, 
 
 

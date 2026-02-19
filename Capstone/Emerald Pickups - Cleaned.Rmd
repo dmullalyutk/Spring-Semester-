@@ -1,0 +1,277 @@
+---
+title: "Emerald Pickups Analysis (Cleaned)"
+author: "David"
+date: "2026-02-19"
+output: html_document
+---
+
+## Setup
+
+```{r setup}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+
+library(readxl)
+library(dplyr)
+library(lubridate)
+library(janitor)
+library(tidyr)
+library(ggplot2)
+library(scales)
+```
+
+## 1) Read pickups data
+
+```{r read-pickups}
+df_raw <- read_excel(
+  "Meters Data 2024.xlsx",
+  sheet = "Emerald Pickups",
+  range = "A1:P50074"
+) %>%
+  clean_names()
+```
+
+## 2) Parse time fields and standardize customer names
+
+```{r parse-time}
+df <- df_raw %>%
+  mutate(
+    customer_id = trimws(as.character(customer_id)),
+    customer_name = trimws(as.character(customer_name)),
+    year = as.integer(date_year),
+    month_num = match(trimws(date_month), month.name),
+    quarter_num = as.integer(gsub("[^0-9]", "", date_quarter)),
+    ym = make_date(year, month_num, 1),
+    month = factor(trimws(date_month), levels = month.name),
+    quarter = factor(quarter_num, levels = 1:4)
+  )
+
+stopifnot(!anyNA(df$ym))
+stopifnot(!anyNA(df$month_num))
+
+name_lookup <- df %>%
+  count(customer_id, customer_name, name = "n") %>%
+  group_by(customer_id) %>%
+  slice_max(n, n = 1, with_ties = FALSE) %>%
+  ungroup() %>%
+  select(customer_id, customer_name)
+
+df_monthly <- df %>%
+  select(-customer_name) %>%
+  left_join(name_lookup, by = "customer_id")
+```
+
+## 3) Aggregate to monthly customer pickups
+
+
+
+## 4) Helper function for one customer-month lookup
+
+```{r helper-function}
+get_pickups <- function(data, customer_id_value, year_value, month_value) {
+  month_value <- tools::toTitleCase(tolower(month_value))
+
+  result <- data %>%
+    filter(
+      customer_id == customer_id_value,
+      year == year_value,
+      as.character(month) == month_value
+    )
+
+  if (nrow(result) == 0) {
+    return(paste(
+      "No pickups for customer",
+      customer_id_value,
+      "in",
+      month_value,
+      year_value
+    ))
+  }
+
+  total <- sum(result$pickups, na.rm = TRUE)
+
+  paste(
+    "Customer",
+    customer_id_value,
+    "had",
+    total,
+    "pickups in",
+    month_value,
+    year_value
+  )
+}
+
+get_pickups(df_monthly, "ALA00330", 2024, "November")
+```
+
+## 5) Read meter features and keep one row per customer
+
+```{r read-meters}
+meters <- read_excel(
+  "Meters Data 2024.xlsx",
+  sheet = "Combined Meter Data"
+) %>%
+  clean_names()
+
+meters_one <- meters %>%
+  transmute(
+    customer_id = trimws(as.character(emerald_customer_id)),
+    data_year = suppressWarnings(as.integer(data_year)),
+    ownership = trimws(as.character(ownership)),
+    ba_code = trimws(as.character(ba_code)),
+    residential,
+    commercial,
+    industrial,
+    transportation,
+    total_meters,
+    meter_state = trimws(as.character(emerald_customer_state))
+  ) %>%
+  arrange(customer_id, desc(data_year), desc(total_meters)) %>%
+  distinct(customer_id, .keep_all = TRUE)
+```
+
+## 6) Join monthly pickups with meter features
+
+```{r join-model-data}
+df_model_all <- df_monthly %>%
+  mutate(customer_id = trimws(as.character(customer_id))) %>%
+  left_join(meters_one, by = "customer_id", relationship = "many-to-one") %>%
+  mutate(
+    has_meter_data = !is.na(total_meters),
+    year_num = as.integer(year)
+  )
+
+df_model <- df_model_all %>%
+  filter(has_meter_data)
+
+mean(is.na(df_model_all$total_meters))
+```
+
+## 7) Recode rare categories and create train/test split
+
+```{r split}
+collapse_rare_global <- function(x, min_count = 25) {
+  x <- as.character(x)
+  freq <- table(x)
+  rare_levels <- names(freq[freq < min_count])
+  x[x %in% rare_levels] <- "OTHER"
+  factor(x)
+}
+
+df_all <- df_model %>%
+  mutate(
+    ba_code = collapse_rare_global(ba_code, min_count = 25),
+    ownership = collapse_rare_global(ownership, min_count = 15),
+    month = factor(as.character(month), levels = month.name),
+    year_num = as.integer(year_num)
+  )
+
+set.seed(123)
+
+
+test <- anti_join(df_all, train, by = c("customer_id", "ym"))
+
+test$ba_code <- factor(test$ba_code, levels = levels(train$ba_code))
+test$ownership <- factor(test$ownership, levels = levels(train$ownership))
+test$month <- factor(test$month, levels = levels(train$month))
+```
+
+## 8) Fit baseline linear model and evaluate
+
+```{r model}
+model_full <- lm(
+  pickups ~ year_num + month +
+    residential + commercial + industrial +
+    transportation + ownership + ba_code,
+  data = train
+)
+
+summary(model_full)
+
+test$pred <- predict(model_full, newdata = test)
+
+rmse <- sqrt(mean((test$pickups - test$pred)^2))
+mae <- mean(abs(test$pickups - test$pred))
+
+rmse
+mae
+```
+
+## 9) Additional observational data 
+
+```{r obs-tip-1-missingness}
+missing_profile <- df_model_all %>%
+  summarise(
+    across(
+      c(total_meters, ownership, ba_code, residential, commercial, industrial, transportation),
+      ~ mean(is.na(.x))
+    )
+  ) %>%
+  pivot_longer(
+    cols = everything(),
+    names_to = "field",
+    values_to = "pct_missing"
+  ) %>%
+  arrange(desc(pct_missing))
+
+missing_profile
+```
+
+```{r obs-tip-2-seasonality}
+monthly_pattern <- df_monthly %>%
+  group_by(month) %>%
+  summarise(
+    avg_pickups = mean(pickups, na.rm = TRUE),
+    p90_pickups = quantile(pickups, 0.90, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+ggplot(monthly_pattern, aes(x = month, y = avg_pickups, group = 1)) +
+  geom_line(color = "#1f7a3a", linewidth = 1) +
+  geom_point(color = "#1f7a3a", size = 2) +
+  labs(
+    title = "Average Pickups by Month",
+    x = "Month",
+    y = "Average Pickups"
+  )
+```
+
+```{r obs-tip-3-concentration}
+customer_concentration <- df_monthly %>%
+  group_by(customer_id, customer_name) %>%
+  summarise(total_pickups = sum(pickups, na.rm = TRUE), .groups = "drop") %>%
+  arrange(desc(total_pickups)) %>%
+  mutate(
+    share = total_pickups / sum(total_pickups),
+    cumulative_share = cumsum(share)
+  )
+
+head(customer_concentration, 15)
+```
+
+```{r obs-tip-4-yoy}
+yoy_month <- df_monthly %>%
+  group_by(year, month) %>%
+  summarise(total_pickups = sum(pickups, na.rm = TRUE), .groups = "drop") %>%
+  arrange(month, year) %>%
+  group_by(month) %>%
+  mutate(yoy_pct = (total_pickups / lag(total_pickups)) - 1) %>%
+  ungroup() %>%
+  arrange(desc(abs(yoy_pct)))
+
+head(yoy_month, 20)
+```
+
+```{r obs-tip-5-outliers}
+customer_outliers <- df_monthly %>%
+  group_by(customer_id, customer_name) %>%
+  mutate(
+    mu = mean(pickups, na.rm = TRUE),
+    sigma = sd(pickups, na.rm = TRUE),
+    z_score = if_else(sigma > 0, (pickups - mu) / sigma, 0)
+  ) %>%
+  ungroup() %>%
+  filter(abs(z_score) >= 3) %>%
+  arrange(desc(abs(z_score)))
+
+head(customer_outliers, 25)
+```
