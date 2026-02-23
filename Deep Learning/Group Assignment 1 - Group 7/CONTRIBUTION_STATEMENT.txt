@@ -1,0 +1,35 @@
+================================================================================
+CONTRIBUTION STATEMENT - Group Assignment 1
+================================================================================
+Group Number: 7
+Course: BZAN 554 
+Assignment: Incremental Learning on Large Data
+
+Approach:
+Each team member independently developed their own neural network 
+implementation, experimenting with different architectures, feature 
+engineering, and hyperparameters. We then compared results and combined 
+the best findings into the final model.
+
+Team Members and Contributions
+------------------------------
+1. Name: Ethan Vann
+   - Built and tested independent network implementation
+   - Created code for deliverable plots
+   - Ran final model on his PC with 16 GB RAM
+   - Worked on presentation slides
+   
+2. Name: Conor Kennard 
+   - Built and tested independent network implementation
+   - Worked on runbook
+   - Worked on presentation slides
+   
+3. Name: Elliot Christoph
+   - Built and tested independent network implementation
+   - Worked on presentation slides
+   
+4. Name: David Mullaly 
+   - Built and tested independent network implementation
+   - Worked on runbook
+   - Worked on presentation slides
+================================================================================

@@ -480,7 +480,6 @@ def compute_oof_target_encoding(
 def transform_features(
     x,
     feature_mode="raw",
-    sku_hash_buckets=32,
     category_hash_buckets=16,
     add_interactions=False,
     feature_artifacts=None,
@@ -495,7 +494,6 @@ def transform_features(
     if feature_mode in ("hash_sku", "hash_ids"):
         # Treat ids as categorical via hashing, not numeric magnitude.
         n = xt.shape[0]
-        sku = np.mod(xt[:, FEATURE_INDEX["sku"]].astype(np.int64), int(sku_hash_buckets))
         category = np.mod(
             xt[:, FEATURE_INDEX["category"]].astype(np.int64), int(category_hash_buckets)
         )
@@ -513,14 +511,10 @@ def transform_features(
 
         cat_one_hot = np.zeros((n, int(category_hash_buckets)), dtype=np.float64)
         cat_one_hot[np.arange(n), category] = 1.0
-
-        sku_one_hot = np.zeros((n, int(sku_hash_buckets)), dtype=np.float64)
-        sku_one_hot[np.arange(n), sku] = 1.0
-        return np.concatenate([numeric, cat_one_hot, sku_one_hot], axis=1)
+        return np.concatenate([numeric, cat_one_hot], axis=1)
     if feature_mode == "log_skew_fe":
         # Engineered numeric signals + hashed id/category encodings.
         n = xt.shape[0]
-        sku = np.mod(xt[:, FEATURE_INDEX["sku"]].astype(np.int64), int(sku_hash_buckets))
         category = np.mod(
             xt[:, FEATURE_INDEX["category"]].astype(np.int64), int(category_hash_buckets)
         )
@@ -546,13 +540,10 @@ def transform_features(
 
         cat_one_hot = np.zeros((n, int(category_hash_buckets)), dtype=np.float64)
         cat_one_hot[np.arange(n), category] = 1.0
-        sku_one_hot = np.zeros((n, int(sku_hash_buckets)), dtype=np.float64)
-        sku_one_hot[np.arange(n), sku] = 1.0
-        return np.concatenate([numeric, cat_one_hot, sku_one_hot], axis=1)
+        return np.concatenate([numeric, cat_one_hot], axis=1)
     if feature_mode in ("log_shift_diff", "log_shift_diff_freq", "log_shift_diff_freq_te"):
         # Shift-robust engineered signals; optional train-only frequency and TE features.
         n = xt.shape[0]
-        sku = np.mod(xt[:, FEATURE_INDEX["sku"]].astype(np.int64), int(sku_hash_buckets))
         category = np.mod(
             xt[:, FEATURE_INDEX["category"]].astype(np.int64), int(category_hash_buckets)
         )
@@ -597,9 +588,7 @@ def transform_features(
 
         cat_one_hot = np.zeros((n, int(category_hash_buckets)), dtype=np.float64)
         cat_one_hot[np.arange(n), category] = 1.0
-        sku_one_hot = np.zeros((n, int(sku_hash_buckets)), dtype=np.float64)
-        sku_one_hot[np.arange(n), sku] = 1.0
-        return np.concatenate([numeric, cat_one_hot, sku_one_hot], axis=1)
+        return np.concatenate([numeric, cat_one_hot], axis=1)
     if add_interactions:
         # Rich second-order interactions for continuous signals.
         price = xt[:, FEATURE_INDEX["price"]]
@@ -624,7 +613,6 @@ def compute_stats(
     chunksize=50000,
     use_log_target=False,
     feature_mode="raw",
-    sku_hash_buckets=32,
     category_hash_buckets=16,
     add_interactions=False,
     feature_artifacts=None,
@@ -647,7 +635,6 @@ def compute_stats(
             x = transform_features(
                 x_raw,
                 feature_mode=feature_mode,
-                sku_hash_buckets=sku_hash_buckets,
                 category_hash_buckets=category_hash_buckets,
                 add_interactions=add_interactions,
                 feature_artifacts=feature_artifacts,
@@ -707,8 +694,6 @@ def preprocess_x(
     std,
     clip=8.0,
     feature_mode="raw",
-    sku_scale=1.0,
-    sku_hash_buckets=32,
     category_scale=1.0,
     category_hash_buckets=16,
     add_interactions=False,
@@ -719,7 +704,6 @@ def preprocess_x(
     xt = transform_features(
         x_raw,
         feature_mode=feature_mode,
-        sku_hash_buckets=sku_hash_buckets,
         category_hash_buckets=category_hash_buckets,
         add_interactions=add_interactions,
         feature_artifacts=feature_artifacts,
@@ -731,11 +715,7 @@ def preprocess_x(
     if numeric_count is not None:
         cat_start = numeric_count
         cat_end = cat_start + int(category_hash_buckets)
-        sku_start = cat_end
         z[:, cat_start:cat_end] = z[:, cat_start:cat_end] * float(category_scale)
-        z[:, sku_start:] = z[:, sku_start:] * float(sku_scale)
-    else:
-        z[:, FEATURE_INDEX["sku"]] = z[:, FEATURE_INDEX["sku"]] * float(sku_scale)
     return z
 
 def split_train_validation_from_file(
@@ -987,8 +967,6 @@ def train_incremental(
     x_clip=8.0,
     use_log_target=False,
     feature_mode="raw",
-    sku_scale=1.0,
-    sku_hash_buckets=32,
     category_scale=1.0,
     category_hash_buckets=16,
     add_interactions=False,
@@ -1046,8 +1024,6 @@ def train_incremental(
                 x_std,
                 clip=x_clip,
                 feature_mode=feature_mode,
-                sku_scale=sku_scale,
-                sku_hash_buckets=sku_hash_buckets,
                 category_scale=category_scale,
                 category_hash_buckets=category_hash_buckets,
                 add_interactions=add_interactions,
@@ -1149,8 +1125,6 @@ def evaluate(
     x_clip=8.0,
     use_log_target=False,
     feature_mode="raw",
-    sku_scale=1.0,
-    sku_hash_buckets=32,
     category_scale=1.0,
     category_hash_buckets=16,
     add_interactions=False,
@@ -1176,8 +1150,6 @@ def evaluate(
         x_std,
         clip=x_clip,
         feature_mode=feature_mode,
-        sku_scale=sku_scale,
-        sku_hash_buckets=sku_hash_buckets,
         category_scale=category_scale,
         category_hash_buckets=category_hash_buckets,
         add_interactions=add_interactions,
@@ -1230,8 +1202,6 @@ def permutation_importance(
     repeats=5,
     x_clip=8.0,
     feature_mode="raw",
-    sku_scale=1.0,
-    sku_hash_buckets=32,
     category_scale=1.0,
     category_hash_buckets=16,
     add_interactions=False,
@@ -1243,8 +1213,6 @@ def permutation_importance(
         x_std,
         clip=x_clip,
         feature_mode=feature_mode,
-        sku_scale=sku_scale,
-        sku_hash_buckets=sku_hash_buckets,
         category_scale=category_scale,
         category_hash_buckets=category_hash_buckets,
         add_interactions=add_interactions,
@@ -1266,8 +1234,6 @@ def permutation_importance(
                 x_std,
                 clip=x_clip,
                 feature_mode=feature_mode,
-                sku_scale=sku_scale,
-                sku_hash_buckets=sku_hash_buckets,
                 category_scale=category_scale,
                 category_hash_buckets=category_hash_buckets,
                 add_interactions=add_interactions,
@@ -1291,8 +1257,6 @@ def partial_dependence_curves(
     x_clip=8.0,
     use_log_target=False,
     feature_mode="raw",
-    sku_scale=1.0,
-    sku_hash_buckets=32,
     category_scale=1.0,
     category_hash_buckets=16,
     add_interactions=False,
@@ -1312,8 +1276,6 @@ def partial_dependence_curves(
                 x_std,
                 clip=x_clip,
                 feature_mode=feature_mode,
-                sku_scale=sku_scale,
-                sku_hash_buckets=sku_hash_buckets,
                 category_scale=category_scale,
                 category_hash_buckets=category_hash_buckets,
                 add_interactions=add_interactions,
@@ -1449,8 +1411,6 @@ def hyperparameter_sweep(
         cfg_lr_decay = cfg.get("lr_decay", 1.0)
         cfg_min_lr = cfg.get("min_learning_rate", 1e-5)
         cfg_feature_mode = cfg.get("feature_mode", "raw")
-        cfg_sku_scale = cfg.get("sku_scale", 1.0)
-        cfg_sku_hash_buckets = cfg.get("sku_hash_buckets", 32)
         cfg_category_scale = cfg.get("category_scale", 1.0)
         cfg_category_hash_buckets = cfg.get("category_hash_buckets", 16)
         cfg_add_interactions = cfg.get("add_interactions", False)
@@ -1486,7 +1446,6 @@ def hyperparameter_sweep(
             x_train_tf = transform_features(
                 x_train_raw,
                 feature_mode=cfg_feature_mode,
-                sku_hash_buckets=cfg_sku_hash_buckets,
                 category_hash_buckets=cfg_category_hash_buckets,
                 add_interactions=cfg_add_interactions,
                 feature_artifacts=feature_artifacts,
@@ -1505,8 +1464,6 @@ def hyperparameter_sweep(
                 x_std,
                 clip=cfg_clip,
                 feature_mode=cfg_feature_mode,
-                sku_scale=cfg_sku_scale,
-                sku_hash_buckets=cfg_sku_hash_buckets,
                 category_scale=cfg_category_scale,
                 category_hash_buckets=cfg_category_hash_buckets,
                 add_interactions=cfg_add_interactions,
@@ -1520,8 +1477,6 @@ def hyperparameter_sweep(
                 x_std,
                 clip=cfg_clip,
                 feature_mode=cfg_feature_mode,
-                sku_scale=cfg_sku_scale,
-                sku_hash_buckets=cfg_sku_hash_buckets,
                 category_scale=cfg_category_scale,
                 category_hash_buckets=cfg_category_hash_buckets,
                 add_interactions=cfg_add_interactions,
@@ -1602,9 +1557,8 @@ def hyperparameter_sweep(
             f"lr={cfg['learning_rate']:.5f} log_target={cfg_log} clip={cfg_clip} "
             f"decay={cfg_lr_decay:.4f} min_lr={cfg_min_lr:.6f} "
             f"hidden={cfg_hidden} loss={cfg_loss} wd={cfg_weight_decay} "
-            f"feat={cfg_feature_mode} sku_scale={cfg_sku_scale} "
-            f"cat_scale={cfg_category_scale} hash_buckets(sku/cat)="
-            f"{cfg_sku_hash_buckets}/{cfg_category_hash_buckets} "
+            f"feat={cfg_feature_mode} "
+            f"cat_scale={cfg_category_scale} hash_buckets(cat)={cfg_category_hash_buckets} "
             f"interact={cfg_add_interactions} "
             f"-> min_split_R2={row['robust_min_r2']:.4f}, "
             f"score={row['selection_score']:.4f}, "
@@ -1666,10 +1620,8 @@ def hyperparameter_sweep(
         f"loss={best['config'].get('loss_type', 'mse')}, "
         f"wd={best['config'].get('weight_decay', 0.0)}, "
         f"feat={best['config'].get('feature_mode', 'raw')}, "
-        f"sku_scale={best['config'].get('sku_scale', 1.0)}, "
         f"cat_scale={best['config'].get('category_scale', 1.0)}, "
-        f"hash_buckets={best['config'].get('sku_hash_buckets', 32)}/"
-        f"{best['config'].get('category_hash_buckets', 16)}, "
+        f"hash_buckets(cat)={best['config'].get('category_hash_buckets', 16)}, "
         f"interact={best['config'].get('add_interactions', False)}, "
         f"min_split_R2={best['robust_min_r2']:.4f}, "
         f"score={best['selection_score']:.4f}, "
@@ -1708,9 +1660,9 @@ def write_experiment_changelog(
                 f"decay={cfg.get('lr_decay', 1.0):.4f}, min_lr={cfg.get('min_learning_rate', 1e-5):.6f}, "
                 f"hidden={cfg.get('hidden_sizes', (128, 64, 32))}, "
                 f"loss={cfg.get('loss_type', 'mse')}, wd={cfg.get('weight_decay', 0.0)}, "
-                f"feat={cfg.get('feature_mode', 'raw')}, sku_scale={cfg.get('sku_scale', 1.0)}, "
+                f"feat={cfg.get('feature_mode', 'raw')}, "
                 f"cat_scale={cfg.get('category_scale', 1.0)}, "
-                f"hash_buckets={cfg.get('sku_hash_buckets', 32)}/{cfg.get('category_hash_buckets', 16)}, "
+                f"hash_buckets(cat)={cfg.get('category_hash_buckets', 16)}, "
                 f"interact={cfg.get('add_interactions', False)} "
                 f"=> min_split_R2={row.get('robust_min_r2', row['val_r2']):.4f}, score={row.get('selection_score', row['val_r2']):.4f}, "
                 f"val_R2={row['val_r2']:.4f}+/-{row.get('val_r2_std', 0.0):.4f}, "
@@ -1736,11 +1688,10 @@ def write_experiment_changelog(
         f"min_lr={best_config.get('min_learning_rate', 1e-5):.6f}, "
         f"hidden={best_config.get('hidden_sizes', (128, 64, 32))}, "
         f"loss={best_config.get('loss_type', 'mse')}, wd={best_config.get('weight_decay', 0.0)}, "
-        f"feat={best_config.get('feature_mode', 'raw')}, sku_scale={best_config.get('sku_scale', 1.0)}, "
+        f"feat={best_config.get('feature_mode', 'raw')}, "
         f"cat_scale={best_config.get('category_scale', 1.0)}, "
         f"min_split_R2={best_config.get('robust_min_r2', float('nan')):.4f}, score={best_config.get('selection_score', float('nan')):.4f}, "
-        f"hash_buckets={best_config.get('sku_hash_buckets', 32)}/"
-        f"{best_config.get('category_hash_buckets', 16)}, "
+        f"hash_buckets(cat)={best_config.get('category_hash_buckets', 16)}, "
         f"interact={best_config.get('add_interactions', False)}"
     )
     lines.append("")
@@ -1783,9 +1734,7 @@ def main():
     lr_decay = 0.996
     min_learning_rate = 1e-5
     feature_mode = "log_shift_diff"
-    sku_scale = 0.00
-    sku_hash_buckets = 32
-    category_scale = 0.55
+    category_scale = 0.50
     category_hash_buckets = 16
     add_interactions = True
     te_smoothing = 20.0
@@ -1802,12 +1751,18 @@ def main():
     tuning_rows = 180000
     tuning_val_ratio = 0.2
     sweep_grid = [
-        # Control: current promoted MSE config.
-        {"batch_size": 64, "epochs": 12, "learning_rate": 0.00075, "use_log_target": False, "x_clip": 8.0, "hidden_sizes": (160, 80, 40), "loss_type": "mse", "huber_delta": 1.0, "weight_decay": 1e-6, "feature_mode": "log_skew_fe", "sku_scale": 0.2, "category_scale": 0.7, "sku_hash_buckets": 32, "category_hash_buckets": 16, "add_interactions": True, "lr_decay": 0.996, "min_learning_rate": 1e-5, "te_smoothing": 20.0, "te_folds": 5},
-        # Huber with default delta.
-        {"batch_size": 64, "epochs": 12, "learning_rate": 0.00075, "use_log_target": False, "x_clip": 8.0, "hidden_sizes": (160, 80, 40), "loss_type": "huber", "huber_delta": 1.0, "weight_decay": 1e-6, "feature_mode": "log_skew_fe", "sku_scale": 0.2, "category_scale": 0.7, "sku_hash_buckets": 32, "category_hash_buckets": 16, "add_interactions": True, "lr_decay": 0.996, "min_learning_rate": 1e-5, "te_smoothing": 20.0, "te_folds": 5},
-        # Huber with tighter delta.
-        {"batch_size": 64, "epochs": 12, "learning_rate": 0.00075, "use_log_target": False, "x_clip": 8.0, "hidden_sizes": (160, 80, 40), "loss_type": "huber", "huber_delta": 0.7, "weight_decay": 1e-6, "feature_mode": "log_skew_fe", "sku_scale": 0.2, "category_scale": 0.7, "sku_hash_buckets": 32, "category_hash_buckets": 16, "add_interactions": True, "lr_decay": 0.996, "min_learning_rate": 1e-5, "te_smoothing": 20.0, "te_folds": 5},
+        # Control.
+        {"batch_size": 64, "epochs": 12, "learning_rate": 0.00075, "use_log_target": False, "x_clip": 7.0, "hidden_sizes": (160, 80, 40), "loss_type": "mse", "huber_delta": 1.0, "weight_decay": 1e-6, "feature_mode": "log_shift_diff", "category_scale": 0.55, "category_hash_buckets": 16, "add_interactions": True, "lr_decay": 0.996, "min_learning_rate": 1e-5, "te_smoothing": 20.0, "te_folds": 5},
+        # No weight decay.
+        {"batch_size": 64, "epochs": 12, "learning_rate": 0.00075, "use_log_target": False, "x_clip": 7.0, "hidden_sizes": (160, 80, 40), "loss_type": "mse", "huber_delta": 1.0, "weight_decay": 0.0, "feature_mode": "log_shift_diff", "category_scale": 0.55, "category_hash_buckets": 16, "add_interactions": True, "lr_decay": 0.996, "min_learning_rate": 1e-5, "te_smoothing": 20.0, "te_folds": 5},
+        # Smaller batch, slightly lower LR.
+        {"batch_size": 48, "epochs": 12, "learning_rate": 0.00070, "use_log_target": False, "x_clip": 7.0, "hidden_sizes": (160, 80, 40), "loss_type": "mse", "huber_delta": 1.0, "weight_decay": 0.0, "feature_mode": "log_shift_diff", "category_scale": 0.55, "category_hash_buckets": 16, "add_interactions": True, "lr_decay": 0.996, "min_learning_rate": 1e-5, "te_smoothing": 20.0, "te_folds": 5},
+        # Smaller batch and shorter horizon.
+        {"batch_size": 48, "epochs": 10, "learning_rate": 0.00070, "use_log_target": False, "x_clip": 7.0, "hidden_sizes": (160, 80, 40), "loss_type": "mse", "huber_delta": 1.0, "weight_decay": 0.0, "feature_mode": "log_shift_diff", "category_scale": 0.55, "category_hash_buckets": 16, "add_interactions": True, "lr_decay": 0.996, "min_learning_rate": 1e-5, "te_smoothing": 20.0, "te_folds": 5},
+        # Larger batch.
+        {"batch_size": 80, "epochs": 12, "learning_rate": 0.00075, "use_log_target": False, "x_clip": 7.0, "hidden_sizes": (160, 80, 40), "loss_type": "mse", "huber_delta": 1.0, "weight_decay": 0.0, "feature_mode": "log_shift_diff", "category_scale": 0.55, "category_hash_buckets": 16, "add_interactions": True, "lr_decay": 0.996, "min_learning_rate": 1e-5, "te_smoothing": 20.0, "te_folds": 5},
+        # Slightly stronger category scaling with no wd.
+        {"batch_size": 64, "epochs": 12, "learning_rate": 0.00070, "use_log_target": False, "x_clip": 7.0, "hidden_sizes": (160, 80, 40), "loss_type": "mse", "huber_delta": 1.0, "weight_decay": 0.0, "feature_mode": "log_shift_diff", "category_scale": 0.60, "category_hash_buckets": 16, "add_interactions": True, "lr_decay": 0.996, "min_learning_rate": 1e-5, "te_smoothing": 20.0, "te_folds": 5},
     ]
     focused_grid = []
     sweep_sections = []
@@ -1859,8 +1814,6 @@ def main():
         lr_decay = best["config"].get("lr_decay", 1.0)
         min_learning_rate = best["config"].get("min_learning_rate", 1e-5)
         feature_mode = best["config"].get("feature_mode", "raw")
-        sku_scale = best["config"].get("sku_scale", 1.0)
-        sku_hash_buckets = best["config"].get("sku_hash_buckets", 32)
         category_scale = best["config"].get("category_scale", 1.0)
         category_hash_buckets = best["config"].get("category_hash_buckets", 16)
         add_interactions = best["config"].get("add_interactions", False)
@@ -1874,11 +1827,10 @@ def main():
             f"decay={lr_decay:.4f}, min_lr={min_learning_rate:.6f}, "
             f"log_target={use_log_target}, clip={x_clip}, hidden={hidden_sizes}, "
             f"loss={loss_type}, wd={weight_decay}, feat={feature_mode}, "
-            f"sku_scale={sku_scale}, cat_scale={category_scale}, "
-            f"hash_buckets={sku_hash_buckets}/{category_hash_buckets}, "
+            f"cat_scale={category_scale}, "
+            f"hash_buckets(cat)={category_hash_buckets}, "
             f"interact={add_interactions}, min_split={selection_min_split:.4f}, score={selection_score:.4f}"
         )
-
     print(f"\nInitial memory usage: {get_memory_usage_mb():.2f} MB")
     feature_artifacts = None
     if feature_mode_uses_freq(feature_mode) or feature_mode_uses_target_encoding(feature_mode):
@@ -1893,7 +1845,6 @@ def main():
         train_file,
         use_log_target=use_log_target,
         feature_mode=feature_mode,
-        sku_hash_buckets=sku_hash_buckets,
         category_hash_buckets=category_hash_buckets,
         add_interactions=add_interactions,
         feature_artifacts=feature_artifacts,
@@ -1930,8 +1881,6 @@ def main():
         x_clip=x_clip,
         use_log_target=use_log_target,
         feature_mode=feature_mode,
-        sku_scale=sku_scale,
-        sku_hash_buckets=sku_hash_buckets,
         category_scale=category_scale,
         category_hash_buckets=category_hash_buckets,
         add_interactions=add_interactions,
@@ -1957,8 +1906,6 @@ def main():
         x_clip=x_clip,
         use_log_target=use_log_target,
         feature_mode=feature_mode,
-        sku_scale=sku_scale,
-        sku_hash_buckets=sku_hash_buckets,
         category_scale=category_scale,
         category_hash_buckets=category_hash_buckets,
         add_interactions=add_interactions,
@@ -2003,8 +1950,6 @@ def main():
             repeats=5,
             x_clip=x_clip,
             feature_mode=feature_mode,
-            sku_scale=sku_scale,
-            sku_hash_buckets=sku_hash_buckets,
             category_scale=category_scale,
             category_hash_buckets=category_hash_buckets,
             add_interactions=add_interactions,
@@ -2024,8 +1969,6 @@ def main():
             x_clip=x_clip,
             use_log_target=use_log_target,
             feature_mode=feature_mode,
-            sku_scale=sku_scale,
-            sku_hash_buckets=sku_hash_buckets,
             category_scale=category_scale,
             category_hash_buckets=category_hash_buckets,
             add_interactions=add_interactions,
@@ -2051,9 +1994,7 @@ def main():
     print(f"Loss Type: {loss_type}")
     print(f"Weight Decay: {weight_decay}")
     print(f"Feature Mode: {feature_mode}")
-    print(f"SKU Scale: {sku_scale}")
     print(f"Category Scale: {category_scale}")
-    print(f"SKU Hash Buckets: {sku_hash_buckets}")
     print(f"Category Hash Buckets: {category_hash_buckets}")
     print(f"Use Interactions: {add_interactions}")
     print(f"TE Smoothing: {te_smoothing}")
@@ -2095,8 +2036,6 @@ def main():
             "lr_decay": lr_decay,
             "min_learning_rate": min_learning_rate,
             "feature_mode": feature_mode,
-            "sku_scale": sku_scale,
-            "sku_hash_buckets": sku_hash_buckets,
             "category_scale": category_scale,
             "category_hash_buckets": category_hash_buckets,
             "add_interactions": add_interactions,
@@ -2117,9 +2056,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
-

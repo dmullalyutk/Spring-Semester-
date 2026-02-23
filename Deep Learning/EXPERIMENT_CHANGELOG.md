@@ -1064,3 +1064,257 @@ Selection Rule: prioritize min-split val_R2, tie by mean(val_R2)-0.70*std(val_R2
 - R2=0.5052, RMSE=35.6453, TrainTime=100.51s, MaxMem=159.80MB
 
 ---
+## 2026-02-19 17:02:43
+
+Validation Strategy: ['sku_shift', 'random']
+Selection Rule: prioritize min-split val_R2, tie by mean(val_R2)-0.70*std(val_R2)
+
+### Sweep Results (train/validation on pricing.csv only)
+
+### Selected Config
+- batch=64, epochs=12, lr=0.00075, log_target=False, clip=7.0, decay=0.9960, min_lr=0.000010, hidden=(160, 80, 40), loss=mse, wd=1e-06, feat=log_shift_diff, sku_scale=0.0, cat_scale=0.55, min_split_R2=nan, score=nan, hash_buckets=32/16, interact=True
+
+### Final Test Result (pricing_test.csv)
+- R2=0.5052, RMSE=35.6453, TrainTime=95.88s, MaxMem=159.79MB
+
+---
+## 2026-02-19 17:04:19
+
+Validation Strategy: ['sku_shift', 'random']
+Selection Rule: prioritize min-split val_R2, tie by mean(val_R2)-0.70*std(val_R2)
+
+### Sweep Results (train/validation on pricing.csv only)
+
+### Selected Config
+- batch=64, epochs=12, lr=0.00075, log_target=False, clip=7.0, decay=0.9960, min_lr=0.000010, hidden=(160, 80, 40), loss=mse, wd=1e-06, feat=log_shift_diff, sku_scale=0.3, cat_scale=0.55, min_split_R2=nan, score=nan, hash_buckets=32/16, interact=True
+
+### Final Test Result (pricing_test.csv)
+- R2=0.5001, RMSE=35.8277, TrainTime=78.28s, MaxMem=160.26MB
+
+---
+## 2026-02-19 17:06:01
+
+Validation Strategy: ['sku_shift', 'random']
+Selection Rule: prioritize min-split val_R2, tie by mean(val_R2)-0.70*std(val_R2)
+
+### Sweep Results (train/validation on pricing.csv only)
+
+### Selected Config
+- batch=64, epochs=12, lr=0.00075, log_target=False, clip=7.0, decay=0.9960, min_lr=0.000010, hidden=(160, 80, 40), loss=mse, wd=1e-06, feat=log_shift_diff, sku_scale=0.4, cat_scale=0.55, min_split_R2=nan, score=nan, hash_buckets=32/16, interact=True
+
+### Final Test Result (pricing_test.csv)
+- R2=0.4998, RMSE=35.8367, TrainTime=86.81s, MaxMem=159.82MB
+
+---
+## 2026-02-19 17:07:46
+
+Validation Strategy: ['sku_shift', 'random']
+Selection Rule: prioritize min-split val_R2, tie by mean(val_R2)-0.70*std(val_R2)
+
+### Sweep Results (train/validation on pricing.csv only)
+
+### Selected Config
+- batch=64, epochs=12, lr=0.00075, log_target=False, clip=7.0, decay=0.9960, min_lr=0.000010, hidden=(160, 80, 40), loss=mse, wd=1e-06, feat=log_shift_diff, sku_scale=0.5, cat_scale=0.55, min_split_R2=nan, score=nan, hash_buckets=32/16, interact=True
+
+### Final Test Result (pricing_test.csv)
+- R2=0.4965, RMSE=35.9581, TrainTime=84.63s, MaxMem=159.83MB
+
+---
+## 2026-02-19 17:25:48
+
+Validation Strategy: ['sku_shift', 'random']
+Selection Rule: prioritize min-split val_R2, tie by mean(val_R2)-0.70*std(val_R2)
+
+### Sweep Results (train/validation on pricing.csv only)
+
+### Selected Config
+- batch=64, epochs=12, lr=0.00075, log_target=False, clip=7.0, decay=0.9960, min_lr=0.000010, hidden=(160, 80, 40), loss=mse, wd=1e-06, feat=log_shift_diff, sku_scale=0.0, cat_scale=0.55, min_split_R2=nan, score=nan, hash_buckets=32/16, interact=True
+
+### Final Test Result (pricing_test.csv)
+- R2=0.5052, RMSE=35.6453, TrainTime=100.44s, MaxMem=159.72MB
+
+---
+## 2026-02-19 17:28:08
+
+Validation Strategy: ['sku_shift', 'random']
+Selection Rule: prioritize min-split val_R2, tie by mean(val_R2)-0.70*std(val_R2)
+
+### Sweep Results (train/validation on pricing.csv only)
+
+### Selected Config
+- batch=64, epochs=12, lr=0.00075, log_target=False, clip=7.0, decay=0.9960, min_lr=0.000010, hidden=(160, 80, 40), loss=mse, wd=1e-06, feat=log_shift_diff_freq, sku_scale=0.0, cat_scale=0.55, min_split_R2=nan, score=nan, hash_buckets=32/16, interact=True
+
+### Final Test Result (pricing_test.csv)
+- R2=0.4400, RMSE=37.9185, TrainTime=113.57s, MaxMem=189.96MB
+
+---
+## 2026-02-19 17:34:03
+
+Validation Strategy: ['sku_shift', 'random']
+Selection Rule: prioritize min-split val_R2, tie by mean(val_R2)-0.70*std(val_R2)
+
+### Sweep Results (train/validation on pricing.csv only)
+
+### Selected Config
+- batch=64, epochs=12, lr=0.00075, log_target=False, clip=7.0, decay=0.9960, min_lr=0.000010, hidden=(160, 80, 40), loss=mse, wd=1e-06, feat=log_shift_diff, cat_scale=0.55, min_split_R2=nan, score=nan, hash_buckets(cat)=16, interact=True
+
+### Final Test Result (pricing_test.csv)
+- R2=0.5016, RMSE=35.7735, TrainTime=69.21s, MaxMem=146.11MB
+
+---
+## 2026-02-19 17:35:55
+
+Validation Strategy: ['sku_shift', 'random']
+Selection Rule: prioritize min-split val_R2, tie by mean(val_R2)-0.70*std(val_R2)
+
+### Sweep Results (train/validation on pricing.csv only)
+
+### Selected Config
+- batch=64, epochs=12, lr=0.00075, log_target=False, clip=7.0, decay=0.9960, min_lr=0.000010, hidden=(160, 80, 40), loss=mse, wd=1e-06, feat=log_shift_diff, cat_scale=0.55, min_split_R2=nan, score=nan, hash_buckets(cat)=16, interact=True
+
+### Final Test Result (pricing_test.csv)
+- R2=0.5016, RMSE=35.7735, TrainTime=69.23s, MaxMem=146.60MB
+
+---
+## 2026-02-19 17:52:35
+
+Validation Strategy: ['sku_shift', 'random']
+Selection Rule: prioritize min-split val_R2, tie by mean(val_R2)-0.70*std(val_R2)
+
+### Sweep Results (train/validation on pricing.csv only)
+- Coarse Sweep:
+  batch=64, epochs=12, lr=0.00075, log_target=False, clip=7.0, decay=0.9960, min_lr=0.000010, hidden=(160, 80, 40), loss=mse, wd=1e-06, feat=log_shift_diff, cat_scale=0.55, hash_buckets(cat)=16, interact=True => min_split_R2=0.5612, score=0.5608, val_R2=0.5703+/-0.0136, val_RMSE=36.7433+/-1.6392, time=18.06s, max_mem=237.16MB
+  splits: sku_shift:R2=0.5612+/-0.0107; random:R2=0.5794+/-0.0094
+  batch=64, epochs=12, lr=0.00065, log_target=False, clip=7.0, decay=0.9960, min_lr=0.000010, hidden=(160, 80, 40), loss=mse, wd=1e-06, feat=log_shift_diff, cat_scale=0.55, hash_buckets(cat)=16, interact=True => min_split_R2=0.5607, score=0.5623, val_R2=0.5710+/-0.0124, val_RMSE=36.7178+/-1.6577, time=18.20s, max_mem=242.75MB
+  splits: sku_shift:R2=0.5607+/-0.0063; random:R2=0.5813+/-0.0074
+  batch=64, epochs=12, lr=0.00085, log_target=False, clip=7.0, decay=0.9960, min_lr=0.000010, hidden=(160, 80, 40), loss=mse, wd=1e-06, feat=log_shift_diff, cat_scale=0.55, hash_buckets(cat)=16, interact=True => min_split_R2=0.5589, score=0.5566, val_R2=0.5685+/-0.0170, val_RMSE=36.8204+/-1.7105, time=18.22s, max_mem=242.66MB
+  splits: sku_shift:R2=0.5589+/-0.0157; random:R2=0.5780+/-0.0122
+  batch=64, epochs=10, lr=0.00075, log_target=False, clip=7.0, decay=0.9960, min_lr=0.000010, hidden=(160, 80, 40), loss=mse, wd=1e-06, feat=log_shift_diff, cat_scale=0.55, hash_buckets(cat)=16, interact=True => min_split_R2=0.5616, score=0.5636, val_R2=0.5690+/-0.0077, val_RMSE=36.8003+/-1.5149, time=15.09s, max_mem=242.57MB
+  splits: sku_shift:R2=0.5616+/-0.0030; random:R2=0.5765+/-0.0003
+  batch=64, epochs=12, lr=0.00075, log_target=False, clip=6.0, decay=0.9960, min_lr=0.000010, hidden=(160, 80, 40), loss=mse, wd=1e-06, feat=log_shift_diff, cat_scale=0.55, hash_buckets(cat)=16, interact=True => min_split_R2=0.5615, score=0.5615, val_R2=0.5709+/-0.0134, val_RMSE=36.7210+/-1.6435, time=18.12s, max_mem=242.94MB
+  splits: sku_shift:R2=0.5615+/-0.0103; random:R2=0.5802+/-0.0090
+  batch=64, epochs=12, lr=0.00075, log_target=False, clip=7.0, decay=0.9960, min_lr=0.000010, hidden=(128, 64, 32), loss=mse, wd=1e-06, feat=log_shift_diff, cat_scale=0.55, hash_buckets(cat)=16, interact=True => min_split_R2=0.5631, score=0.5654, val_R2=0.5729+/-0.0107, val_RMSE=36.6377+/-1.6167, time=14.61s, max_mem=252.23MB
+  splits: sku_shift:R2=0.5631+/-0.0034; random:R2=0.5826+/-0.0052
+  batch=64, epochs=12, lr=0.00075, log_target=False, clip=7.0, decay=0.9960, min_lr=0.000010, hidden=(160, 80, 40), loss=mse, wd=1e-06, feat=log_shift_diff, cat_scale=0.45, hash_buckets(cat)=16, interact=True => min_split_R2=0.5598, score=0.5597, val_R2=0.5696+/-0.0141, val_RMSE=36.7752+/-1.6686, time=18.12s, max_mem=255.35MB
+  splits: sku_shift:R2=0.5598+/-0.0110; random:R2=0.5794+/-0.0092
+  batch=64, epochs=12, lr=0.00075, log_target=False, clip=7.0, decay=0.9960, min_lr=0.000010, hidden=(160, 80, 40), loss=mse, wd=1e-06, feat=log_shift_diff, cat_scale=0.65, hash_buckets(cat)=16, interact=True => min_split_R2=0.5607, score=0.5603, val_R2=0.5702+/-0.0141, val_RMSE=36.7496+/-1.6602, time=18.63s, max_mem=255.46MB
+  splits: sku_shift:R2=0.5607+/-0.0114; random:R2=0.5797+/-0.0093
+
+### Selected Config
+- batch=64, epochs=12, lr=0.00075, log_target=False, clip=7.0, decay=0.9960, min_lr=0.000010, hidden=(128, 64, 32), loss=mse, wd=1e-06, feat=log_shift_diff, cat_scale=0.55, min_split_R2=0.5631, score=0.5654, hash_buckets(cat)=16, interact=True
+
+### Final Test Result (pricing_test.csv)
+- R2=0.5007, RMSE=35.8053, TrainTime=58.96s, MaxMem=179.92MB
+
+---
+## 2026-02-19 18:02:22
+
+Validation Strategy: ['sku_shift', 'random']
+Selection Rule: prioritize min-split val_R2, tie by mean(val_R2)-0.70*std(val_R2)
+
+### Sweep Results (train/validation on pricing.csv only)
+- Coarse Sweep:
+  batch=64, epochs=12, lr=0.00075, log_target=False, clip=7.0, decay=0.9960, min_lr=0.000010, hidden=(160, 80, 40), loss=mse, wd=1e-06, feat=log_shift_diff, cat_scale=0.55, hash_buckets(cat)=16, interact=True => min_split_R2=0.5612, score=0.5608, val_R2=0.5703+/-0.0136, val_RMSE=36.7433+/-1.6392, time=18.48s, max_mem=237.26MB
+  splits: sku_shift:R2=0.5612+/-0.0107; random:R2=0.5794+/-0.0094
+  batch=64, epochs=12, lr=0.00075, log_target=False, clip=7.0, decay=0.9960, min_lr=0.000010, hidden=(160, 80, 40), loss=mse, wd=0.0, feat=log_shift_diff, cat_scale=0.55, hash_buckets(cat)=16, interact=True => min_split_R2=0.5614, score=0.5610, val_R2=0.5704+/-0.0134, val_RMSE=36.7396+/-1.6356, time=18.37s, max_mem=243.65MB
+  splits: sku_shift:R2=0.5614+/-0.0106; random:R2=0.5795+/-0.0093
+  batch=48, epochs=12, lr=0.00070, log_target=False, clip=7.0, decay=0.9960, min_lr=0.000010, hidden=(160, 80, 40), loss=mse, wd=0.0, feat=log_shift_diff, cat_scale=0.55, hash_buckets(cat)=16, interact=True => min_split_R2=0.5598, score=0.5581, val_R2=0.5696+/-0.0163, val_RMSE=36.7748+/-1.7063, time=21.81s, max_mem=242.11MB
+  splits: sku_shift:R2=0.5598+/-0.0139; random:R2=0.5794+/-0.0122
+  batch=48, epochs=10, lr=0.00070, log_target=False, clip=7.0, decay=0.9960, min_lr=0.000010, hidden=(160, 80, 40), loss=mse, wd=0.0, feat=log_shift_diff, cat_scale=0.55, hash_buckets(cat)=16, interact=True => min_split_R2=0.5633, score=0.5626, val_R2=0.5659+/-0.0047, val_RMSE=36.9285+/-1.3197, time=18.50s, max_mem=241.73MB
+  splits: sku_shift:R2=0.5633+/-0.0046; random:R2=0.5685+/-0.0031
+  batch=80, epochs=12, lr=0.00075, log_target=False, clip=7.0, decay=0.9960, min_lr=0.000010, hidden=(160, 80, 40), loss=mse, wd=0.0, feat=log_shift_diff, cat_scale=0.55, hash_buckets(cat)=16, interact=True => min_split_R2=0.5650, score=0.5667, val_R2=0.5739+/-0.0103, val_RMSE=36.5916+/-1.5851, time=16.06s, max_mem=242.08MB
+  splits: sku_shift:R2=0.5650+/-0.0034; random:R2=0.5828+/-0.0065
+  batch=64, epochs=12, lr=0.00070, log_target=False, clip=7.0, decay=0.9960, min_lr=0.000010, hidden=(160, 80, 40), loss=mse, wd=0.0, feat=log_shift_diff, cat_scale=0.6, hash_buckets(cat)=16, interact=True => min_split_R2=0.5612, score=0.5619, val_R2=0.5707+/-0.0125, val_RMSE=36.7295+/-1.6337, time=18.40s, max_mem=241.89MB
+  splits: sku_shift:R2=0.5612+/-0.0083; random:R2=0.5801+/-0.0079
+
+### Selected Config
+- batch=80, epochs=12, lr=0.00075, log_target=False, clip=7.0, decay=0.9960, min_lr=0.000010, hidden=(160, 80, 40), loss=mse, wd=0.0, feat=log_shift_diff, cat_scale=0.55, min_split_R2=0.5650, score=0.5667, hash_buckets(cat)=16, interact=True
+
+### Final Test Result (pricing_test.csv)
+- R2=0.4768, RMSE=36.6543, TrainTime=60.42s, MaxMem=165.85MB
+
+---
+## 2026-02-19 18:06:05
+
+Validation Strategy: ['sku_shift', 'random']
+Selection Rule: prioritize min-split val_R2, tie by mean(val_R2)-0.70*std(val_R2)
+
+### Sweep Results (train/validation on pricing.csv only)
+
+### Selected Config
+- batch=48, epochs=10, lr=0.00070, log_target=False, clip=7.0, decay=0.9960, min_lr=0.000010, hidden=(160, 80, 40), loss=mse, wd=0.0, feat=log_shift_diff, cat_scale=0.55, min_split_R2=nan, score=nan, hash_buckets(cat)=16, interact=True
+
+### Final Test Result (pricing_test.csv)
+- R2=0.4956, RMSE=35.9893, TrainTime=69.01s, MaxMem=146.96MB
+
+---
+## 2026-02-19 18:08:38
+
+Validation Strategy: ['sku_shift', 'random']
+Selection Rule: prioritize min-split val_R2, tie by mean(val_R2)-0.70*std(val_R2)
+
+### Sweep Results (train/validation on pricing.csv only)
+
+### Selected Config
+- batch=64, epochs=12, lr=0.00065, log_target=False, clip=7.0, decay=0.9960, min_lr=0.000010, hidden=(160, 80, 40), loss=mse, wd=1e-06, feat=log_shift_diff, cat_scale=0.55, min_split_R2=nan, score=nan, hash_buckets(cat)=16, interact=True
+
+### Final Test Result (pricing_test.csv)
+- R2=0.5007, RMSE=35.8052, TrainTime=70.38s, MaxMem=146.38MB
+
+---
+## 2026-02-19 18:10:18
+
+Validation Strategy: ['sku_shift', 'random']
+Selection Rule: prioritize min-split val_R2, tie by mean(val_R2)-0.70*std(val_R2)
+
+### Sweep Results (train/validation on pricing.csv only)
+
+### Selected Config
+- batch=64, epochs=12, lr=0.00075, log_target=False, clip=7.0, decay=0.9960, min_lr=0.000010, hidden=(160, 80, 40), loss=mse, wd=1e-06, feat=log_shift_diff, cat_scale=0.55, min_split_R2=nan, score=nan, hash_buckets(cat)=16, interact=True
+
+### Final Test Result (pricing_test.csv)
+- R2=0.5016, RMSE=35.7735, TrainTime=69.17s, MaxMem=146.58MB
+
+---
+## 2026-02-19 18:11:55
+
+Validation Strategy: ['sku_shift', 'random']
+Selection Rule: prioritize min-split val_R2, tie by mean(val_R2)-0.70*std(val_R2)
+
+### Sweep Results (train/validation on pricing.csv only)
+
+### Selected Config
+- batch=64, epochs=12, lr=0.00075, log_target=False, clip=7.0, decay=0.9960, min_lr=0.000010, hidden=(160, 80, 40), loss=mse, wd=1e-06, feat=log_shift_diff, cat_scale=0.5, min_split_R2=nan, score=nan, hash_buckets(cat)=16, interact=True
+
+### Final Test Result (pricing_test.csv)
+- R2=0.5022, RMSE=35.7529, TrainTime=68.96s, MaxMem=143.73MB
+
+---
+## 2026-02-19 18:13:46
+
+Validation Strategy: ['sku_shift', 'random']
+Selection Rule: prioritize min-split val_R2, tie by mean(val_R2)-0.70*std(val_R2)
+
+### Sweep Results (train/validation on pricing.csv only)
+
+### Selected Config
+- batch=64, epochs=12, lr=0.00075, log_target=False, clip=7.0, decay=0.9960, min_lr=0.000010, hidden=(160, 80, 40), loss=mse, wd=1e-06, feat=log_shift_diff, cat_scale=0.45, min_split_R2=nan, score=nan, hash_buckets(cat)=16, interact=True
+
+### Final Test Result (pricing_test.csv)
+- R2=0.5015, RMSE=35.7784, TrainTime=69.14s, MaxMem=146.23MB
+
+---
+## 2026-02-19 18:15:26
+
+Validation Strategy: ['sku_shift', 'random']
+Selection Rule: prioritize min-split val_R2, tie by mean(val_R2)-0.70*std(val_R2)
+
+### Sweep Results (train/validation on pricing.csv only)
+
+### Selected Config
+- batch=64, epochs=12, lr=0.00075, log_target=False, clip=7.0, decay=0.9960, min_lr=0.000010, hidden=(160, 80, 40), loss=mse, wd=1e-06, feat=log_shift_diff, cat_scale=0.5, min_split_R2=nan, score=nan, hash_buckets(cat)=16, interact=True
+
+### Final Test Result (pricing_test.csv)
+- R2=0.5022, RMSE=35.7529, TrainTime=69.21s, MaxMem=146.33MB
+
+---

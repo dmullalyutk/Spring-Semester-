@@ -1,0 +1,24 @@
+Runbook — Incremental Neural Network
+
+Prerequisites:
+  Python 3.8+
+  pip install numpy pandas matplotlib psutil
+
+Files:
+  main.py            — model training, evaluation, and plots
+  pricing.csv        — training data
+  pricing_test.csv   — test data (evaluation only)
+
+Place all three files in the same directory.
+
+Running:
+  python main.py
+
+Runtime: ~2-5 minutes
+
+Outputs:
+  - Test R², RMSE, MSE printed to console
+  - learning_curve.png
+  - variable_importance.png
+  - partial_dependence.png
+

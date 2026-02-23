@@ -1,126 +1,180 @@
-================================================================================
-RUNBOOK - Group Assignment 1: Incremental Learning on Large Data
-================================================================================
 
-PROJECT PURPOSE
+RUNBOOK 
+
+
+Purpose
+
+`main_clean.py` trains and evaluates an incremental feed-forward neural network
+for quantity prediction on pricing data.
+
+The script is fully from-scratch NumPy training with:
+- 3 hidden sigmoid layers
+- Adam updates + gradient clipping + weight decay
+- chunked CSV streaming for large-data training
+- learning curve, permutation importance, and partial dependence plots
+
+
+Code Scope Used for This Runbook
+
+This runbook was created by reading `Deep Learning/main_clean.py` only.
+No code was executed.
+
+
+Required Inputs
+
+Training file columns expected:
+- `sku`, `price`, `quantity`, `order`, `duration`, `category`
+
+Test file can be either:
+1. with header matching the same columns, or
+2. headerless with columns interpreted in this order:
+   `sku, price, quantity, order, duration, category`
+
+
+Path Resolution Behavior
+
+`resolve_paths()` searches for files in this order:
+- script directory
+- current working directory
+- `<cwd>/Deep Learning`
+
+It resolves:
+- `pricing.csv`
+- `pricing_test.csv`
+- output directory = script directory (same folder as `main_clean.py`)
+
+
+Current Fixed Configuration in Code
+
+From constants near top of `main_clean.py`:
+- `BASE_SEED = int(os.environ.get("ILNN_SEED", "42"))`
+- `FEATURE_COLS = ["sku", "price", "order", "duration", "category"]`
+- `TARGET_COL = "quantity"`
+- `BATCH_SIZE = 64`
+- `EPOCHS = 12`
+- `CHUNK_ROWS = 60000`
+- `HIDDEN_SIZES = (160, 80, 40)`
+- `LEARNING_RATE = 7.5e-4`
+- `X_CLIP = 7.0`
+- `WEIGHT_DECAY = 1e-6`
+- `LR_DECAY = 0.996`
+- `MIN_LR = 1e-5`
+- `CATEGORY_HASH_BUCKETS = 16`
+- `CATEGORY_SCALE = 0.50`
+- `SHUFFLE_BUFFER_CHUNKS = 8`
+
+
+Feature Engineering
+`transform_features(x_raw)` builds 26 total input features:
+
+Numeric block (10 columns):
+1. `log1p(price)`
+2. `log1p(order)`
+3. `log1p(duration)`
+4. `order - duration`
+5. `price - order`
+6. `price - duration`
+7. `order / (duration + 1e-3)`
+8. `price * duration`
+9. `order * duration`
+10. `price * order`
+
+Category block (16 columns):
+- hashed one-hot from `category % 16`
+
+Important note :
+- `sku` is read from CSV but not used in `transform_features` output.
+- category one-hot columns are later scaled by `CATEGORY_SCALE` in preprocessing.
+
+
+Standardization and Preprocessing
+
+`compute_stats(train_file)` performs streaming mean/std over transformed features
+and raw target using chunked reads.
+
+`preprocess_x(...)` does:
+1. feature transform
+2. z-score with train mean/std
+3. clip to `[-X_CLIP, X_CLIP]`
+4. multiply category one-hot block by `CATEGORY_SCALE`
+
+Target handling:
+- no log transform
+- standardized as `(y - y_mean) / y_std`
+- predictions unstandardized back to original quantity scale
+
+
+Model Architecture and Optimizer
+--------------------------------
+`IncrementalNeuralNetwork`:
+- Input size inferred from transformed feature dimension (currently 26)
+- Architecture: `26 -> 160 -> 80 -> 40 -> 1`
+- Hidden activation: sigmoid
+- Output: linear
+- Weight init: Xavier uniform
+- Optimizer: Adam (manual implementation)
+  - beta1=0.9, beta2=0.999, epsilon=1e-8
+- Regularization: L2 weight decay (`1e-6`)
+- Gradient clipping: `[-5, 5]`
+
+
+Training Flow
+-------------
+`train_incremental(...)`:
+1. loops `EPOCHS` times (12)
+2. per-epoch LR decay: `max(initial_lr * LR_DECAY^(epoch-1), MIN_LR)`
+3. reads train CSV in chunks of `CHUNK_ROWS`
+4. shuffles each chunk
+5. stores chunks in a buffer and pops random chunks once buffer is full
+6. trains mini-batches of size `BATCH_SIZE`
+7. tracks:
+   - `instances_trained`
+   - `mse_history`
+   - memory snapshots
+
+Returns:
+- training time
+- max memory
+- average memory
+
+
+Evaluation Flow
 ---------------
-Train a 3-hidden-layer feed-forward neural network with sigmoid hidden
-activations using incremental mini-batch learning on pricing.csv.
-
-This implementation is assignment-compliant:
-- Incremental learning on chunked CSV data
-- 3 hidden layers with sigmoid activation
-- Test set (pricing_test.csv) is not used for training/tuning logic
-- Learning curve, variable importance, partial dependence available
-- RAM usage and training time reported
-
-
-ENVIRONMENT
------------
-Python: 3.14 (or 3.8+)
-Packages:
-- numpy
-- pandas
-- matplotlib
-- psutil
-
-Install:
-  pip install numpy pandas matplotlib psutil
+`evaluate(...)`:
+1. loads test data (header inferred automatically)
+2. optionally rescales any test feature whose median ratio vs train median is
+   extreme (`>50` or `<0.02`)
+3. preprocesses test features with train stats
+4. predicts quantity
+5. computes metrics:
+   - MSE
+   - RMSE
+   - R2
 
 
-KEY FILES
----------
-- incremental_nn.py
-- pricing.csv
-- pricing_test.csv
-- EXPERIMENT_CHANGELOG.md
-- CONTRIBUTION_STATEMENT.txt
+Interpretability Outputs
+------------------------
+Using a sampled subset of training rows (`n=5000`):
+- permutation importance over raw columns in `FEATURE_COLS`
+- partial dependence curves for each feature in `FEATURE_COLS`
 
-Outputs:
-- learning_curve.png
-- variable_importance.png
-- partial_dependence.png
+Saved files:
+- `learning_curve.png`
+- `variable_importance.png`
+- `partial_dependence.png`
 
-
-CURRENT PRIMARY CONFIG (LOCKED)
--------------------------------
-In main() of incremental_nn.py:
-- epochs = 12
-- batch_size = 64
-- hidden_sizes = (160, 80, 40)
-- learning_rate = 7.5e-4
-- lr_decay = 0.996
-- min_learning_rate = 1e-5
-- loss_type = "mse"
-- weight_decay = 1e-6
-- feature_mode = "log_shift_diff"
-- sku_scale = 0.0
-- category_scale = 0.55
-- x_clip = 7.0
-- run_sweep = False
-- run_interpretability = False (fast iteration default)
-
-Scale-alignment behavior:
-- test order/duration are aligned using robust median-ratio correction
-- fallback mean/power-of-10 correction exists when needed
-
-Seed control:
-- Environment variable ILNN_SEED controls run seed
-- default seed = 42 if ILNN_SEED is not set
+Note:
+- There is no `results_summary.json` output in current code.
 
 
-HOW TO RUN
-----------
-1) Fast run (no plot generation; quickest iteration)
-   cd "c:\Users\david\Desktop\Spring-Semester-\Deep Learning"
-   py -3.14 incremental_nn.py
+Operational Notes
+-----------------
+- If you want reproducible runs, set `ILNN_SEED` before execution.
+  Example (PowerShell):
+    $env:ILNN_SEED="42"
 
-2) Seeded run (for robustness checks)
-   PowerShell:
-   $env:ILNN_SEED='41'; py -3.14 incremental_nn.py
-
-3) Final artifact run (generate required plots)
-   - In incremental_nn.py set run_interpretability = True
-   - Then run:
-     py -3.14 incremental_nn.py
-   - Set run_interpretability back to False afterward for fast runs
-
-
-RECENT REPORTED METRICS
------------------------
-From final artifact run log:
-- log file: run_final_artifacts_seed42_20260218_120858.log
-- Test R2: 0.5052
-- Test RMSE: 35.6453
-- Train time: 100.51 s
-- Max memory: 159.80 MB
-
-From 3-seed robustness check (same locked config):
-- seed 41: R2=0.5147, RMSE=35.2994
-- seed 52: R2=0.4654, RMSE=37.0501
-- seed 63: R2=0.4711, RMSE=36.8530
-- mean R2=0.4837, sample std=0.0270
-
-
-ASSIGNMENT COMPLIANCE NOTES
----------------------------
-- Train/tune on pricing.csv only
-- pricing_test.csv used only for final evaluation reporting
-- Keep all experimentation history in EXPERIMENT_CHANGELOG.md
-- Keep contribution ownership in CONTRIBUTION_STATEMENT.txt
-
-
-PRESENTATION CONTENT CHECKLIST (MINIMUM)
-----------------------------------------
-Include these in final PDF/PPT:
-- Problem + data summary
-- Model architecture and incremental training flow
-- Final hyperparameters/config
-- Learning curve plot
-- Variable importance plot
-- Multiple partial dependence plots
-- Final metrics (R2/RMSE), training time, RAM usage
-- Compliance statement (no test tuning)
-- Team contribution summary
+- The script currently prints some mojibake characters in labels like `R²`
+  due to encoding in string literals; this is cosmetic and does not affect
+  training logic.
 
 ================================================================================
