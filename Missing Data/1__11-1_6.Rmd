@@ -1,0 +1,1131 @@
+---
+title: "Data Wrangling and Cleaning: Steps 1-11"
+author: "David Mullaly"
+date: "`r Sys.Date()`"
+output:
+  word_document: default
+  html_document: default
+  pdf_document: default
+---
+
+## Introduction
+
+This document covers the data wrangling process and all eleven data cleaning steps for the problem. We load multiple relational tables, merge them into a single flat file, and perform comprehensive data cleaning to prepare for missing data analysis.
+
+### Data Cleaning Steps Covered:
+**Steps 1-5 (Initial Cleaning)**
+
+1. Open data in your software of choice
+2. Review variables for common sense based on SME knowledge
+3. Review how the software coded the variables (nominal, continuous)
+4. Perform data integrity/validation checks
+5. Handle dates
+
+**Steps 6-7 (Categorical & Zero-Variance)**
+
+6. Handle categorical variables - keep as is, combine rare levels, combine similar levels
+7. Handle zero-variance predictors
+
+**Steps 8-11 (Advanced Cleaning)**
+
+8. Handle near zero-variance predictors
+9. Eliminate redundant columns and linear combination columns
+10. Search for outliers and initial search for missing values
+11. Sanity check using Decision Tree (1 to 2 splits)
+
+```{r setup, include=FALSE}
+# Setup Chunk - Load Required Libraries
+library(mice)
+library(VIM)
+library(tidyverse)
+library(ggplot2)
+library(reshape2)
+library(corrplot)
+library(lubridate)
+library(flextable)
+library(rpart)       # Decision Tree package
+library(rpart.plot)  # Visualization of Decision Trees
+
+setwd("C:/Users/david/Desktop/Spring-Semester-/Missing Data")
+```
+
+## Data Loading and Wrangling
+
+Load four relational tables and merge into a single flat file (FFdf) using left joins on Cust_ID.
+
+```{r load_data, echo=FALSE}
+# Load the raw data files
+MainDF <- read.csv("Raw.csv")
+StoreDF <- read.csv("StoreTable.csv")
+ConcessDF <- read.csv("ConcessTable.csv")
+CustomerDF <- read.csv("CustomerTable.csv")
+
+# Check dimensions of each file
+cat("MainDF:", dim(MainDF), "| StoreDF:", dim(StoreDF),
+    "| ConcessDF:", dim(ConcessDF), "| CustomerDF:", dim(CustomerDF), "\n")
+```
+
+```{r check_duplicates, echo=FALSE}
+# Check for duplicate Cust_IDs in each source table BEFORE merging
+cat("Duplicates in MainDF:", sum(duplicated(MainDF$Cust_ID)), "\n")
+cat("Duplicates in StoreDF:", sum(duplicated(StoreDF$Cust_ID)), "\n")
+cat("Duplicates in ConcessDF:", sum(duplicated(ConcessDF$Cust_ID)), "\n")
+cat("Duplicates in CustomerDF:", sum(duplicated(CustomerDF$Cust_ID)), "\n")
+```
+
+```{r merge_data, echo=FALSE}
+# Create flat file by merging all tables on Cust_ID
+FFdf <- MainDF
+FFdf <- merge(FFdf, StoreDF, by = "Cust_ID", all.x = TRUE)
+FFdf <- merge(FFdf, ConcessDF, by = "Cust_ID", all.x = TRUE)
+FFdf <- merge(FFdf, CustomerDF, by = "Cust_ID", all.x = TRUE)
+
+cat("Final flat file dimensions - Rows:", nrow(FFdf), "Columns:", ncol(FFdf), "\n")
+cat("Unique Cust_ID:", length(unique(FFdf$Cust_ID)), "| Duplicate rows:", nrow(FFdf) - length(unique(FFdf$Cust_ID)), "\n")
+```
+
+## Step 1: Open Data in Your Software of Choice
+
+Create identifier variable, arrange columns, and explore distributions visually.
+
+```{r step1_open_data, echo=FALSE, fig.width=8, fig.height=6}
+# Create an identifier variable
+FFdf$ID <- 1:nrow(FFdf)
+
+# Reorder columns: Y-variable first, then alphabetically
+y_var <- "Y01"
+other_vars <- sort(setdiff(names(FFdf), y_var))
+FFdf <- FFdf[, c(y_var, other_vars)]
+
+# Histograms for key numeric variables
+par(mfrow = c(2, 2))
+hist(FFdf$Age, main = "Distribution of Age", xlab = "Age", col = "steelblue", breaks = 20)
+hist(FFdf$tenure, main = "Distribution of Tenure", xlab = "Tenure (Years)", col = "steelblue", breaks = 20)
+hist(FFdf$NumSeats, main = "Distribution of NumSeats", xlab = "Number of Seats", col = "steelblue")
+hist(FFdf$Total.Spent, main = "Distribution of Total Spent", xlab = "Total Spent ($)", col = "steelblue", breaks = 30)
+par(mfrow = c(1, 1))
+
+# Response variable distribution
+cat("Response Variable (Y01):", table(FFdf$Y01), "\n")
+barplot(table(FFdf$Y01), main = "Distribution of Y01 (Response Variable)",
+        col = c("coral", "steelblue"), names.arg = c("0 (No)", "1 (Yes)"))
+```
+
+**Observations:** Age is roughly normal (30-60), Tenure is right-skewed, NumSeats clusters around 2-4, Total Spent is heavily right-skewed. Response variable Y01 is reasonably balanced.
+
+## Step 2: Review Variables for Common Sense (SME Knowledge)
+
+Standardize variable names and check for unique identifiers.
+
+```{r step2_common_sense, echo=FALSE}
+# Clean up variable names - replace dots/spaces with underscores, capitalize
+names(FFdf) <- gsub("\\.", "_", names(FFdf))
+names(FFdf) <- gsub(" ", "_", names(FFdf))
+names(FFdf) <- gsub("(^|_)([a-z])", "\\1\\U\\2", names(FFdf), perl = TRUE)
+
+cat("Dataset:", nrow(FFdf), "rows,", ncol(FFdf), "columns\n")
+cat("Unique Cust_ID:", length(unique(FFdf$Cust_ID)), "out of", nrow(FFdf), "rows\n")
+```
+
+**Result:** Each row does not necessarily represent a unique customer (175 duplicate Cust_IDs found in MainDF source data).
+
+## Step 3: Review How Software Coded Variables
+
+Convert character variables to factors for proper categorical analysis.
+
+```{r step3_variable_types, echo=FALSE}
+# Identify character variables
+chr_vars <- names(FFdf)[sapply(FFdf, is.character)]
+cat("Character variables to convert:", length(chr_vars), "\n")
+
+# Convert character variables to factors
+for(var in chr_vars) {
+  FFdf[[var]] <- as.factor(FFdf[[var]])
+}
+
+# Show key factor levels
+cat("\nSex levels:", levels(FFdf$Sex), "\n")
+cat("Marital levels:", levels(FFdf$Marital), "\n")
+cat("Account_Type levels:", levels(FFdf$Account_Type), "\n")
+```
+
+**Note:** Marital has levels D (Divorced), M (Married), S (Single), U (Unknown). The "U" for Unknown may need special handling.
+
+## Step 4: Data Integrity/Validation Checks
+
+Check for anomalies, bogus values, and data quality issues.
+
+```{r step4_checks, echo=FALSE}
+# Check numeric variable ranges
+cat("Age range:", range(FFdf$Age, na.rm = TRUE), "\n")
+cat("Tenure range:", range(FFdf$Tenure, na.rm = TRUE), "\n")
+cat("NumSeats range:", range(FFdf$NumSeats, na.rm = TRUE), "\n")
+
+# Check for 999 placeholder values in DistA
+cat("\nDistA values = 999:", sum(FFdf$DistA == 999, na.rm = TRUE), "\n")
+
+# Convert 999 to NA (placeholder for missing)
+FFdf$DistA[FFdf$DistA == 999] <- NA
+cat("DistA NA count after conversion:", sum(is.na(FFdf$DistA)), "\n")
+
+# Check Survey_Comp for outliers (expected range 0-1)
+cat("\nSurvey_Comp range:", range(FFdf$Survey_Comp, na.rm = TRUE), "\n")
+cat("Survey_Comp values > 1:", sum(FFdf$Survey_Comp > 1, na.rm = TRUE), "\n")
+
+# Check for redundant columns
+cat("\nState_Name unique:", length(unique(FFdf$State_Name)),
+    "| State_Loc unique:", length(unique(FFdf$State_Loc)), "\n")
+```
+
+**Issues Found:**
+
+- **DistA = 999:** Placeholder values converted to NA
+- **Survey_Comp > 1:** Outlier found when expected range is 0-1
+- **Age max = 99:** May be placeholder or extreme value - verify with SME
+- **Tenure max = 400:** Suspicious value if measured in years - verify units with SME
+- **State_Name/State_Loc:** Redundant columns (same info, different format)
+- **Marital = "U":** Unknown status - consider treating as NA
+- **Cust_ID duplicates:** 175 duplicate IDs found in MainDF source data
+- **Address, Name, PhoneNum:** 100% missing - likely removed from CustomerDF for privacy
+
+## Step 5: Handle Dates
+
+Convert Last_Contact datetime and extract useful components.
+
+```{r step5_handle_dates, echo=FALSE}
+# Convert Last_Contact to datetime format
+FFdf$Last_Contact <- ymd_hms(as.character(FFdf$Last_Contact))
+
+# Extract date components
+FFdf$Contact_Year <- year(FFdf$Last_Contact)
+FFdf$Contact_Month <- month(FFdf$Last_Contact)
+FFdf$Contact_Day <- day(FFdf$Last_Contact)
+FFdf$Contact_Weekday <- wday(FFdf$Last_Contact, label = TRUE)
+FFdf$Contact_Hour <- hour(FFdf$Last_Contact)
+
+cat("Date components extracted: Contact_Year, Contact_Month, Contact_Day, Contact_Weekday, Contact_Hour\n")
+cat("Contact Year range:", range(FFdf$Contact_Year, na.rm = TRUE), "\n")
+cat("Contact Hour range:", range(FFdf$Contact_Hour, na.rm = TRUE), "\n")
+```
+
+## Summary
+
+```{r summary, echo=FALSE}
+cat("Final Dataset:", nrow(FFdf), "rows x", ncol(FFdf), "columns\n")
+cat("Total Missing Values:", sum(is.na(FFdf)), "\n")
+
+# Show columns with missing values
+na_counts <- colSums(is.na(FFdf))
+na_cols <- na_counts[na_counts > 0]
+cat("\nColumns with missing values:\n")
+print(sort(na_cols, decreasing = TRUE))
+```
+
+### Data Quality Issues for Future Steps:
+
+| Issue | Possible action / Action Taken |
+|-------|--------------|
+| DistA = 999 | Converted to NA |
+| Survey_Comp > 1 | Flag for investigation (110 values, max 7.4) |
+| Age = 99 | Verify with SME |
+| Tenure = 400 | Verify units with SME (400 years unlikely) |
+| Marital = "U" | Consider as NA or keep |
+| State redundancy | Drop one column |
+| ID columns | Exclude from modeling |
+| Cust_ID duplicates | 175 duplicates in MainDF - investigate or deduplicate |
+| PII columns | Address, Name, PhoneNum 100% missing - exclude |
+
+
+
+**Step 6: Handle Categorical Variables - keep as is, combine rare levels, combine similar levels**
+
+
+```{r step6_categorical, echo=FALSE}
+# Get all factor variables
+factor_vars <- names(FFdf)[sapply(FFdf, is.factor)]
+cat("Factor variables:", length(factor_vars), "\n")
+
+# Function to check for rare levels (less than 5% of data)
+check_rare_levels <- function(df, threshold = 0.05) {
+  factor_vars <- names(df)[sapply(df, is.factor)]
+  rare_info <- list()
+
+  for(var in factor_vars) {
+    tbl <- table(df[[var]], useNA = "ifany")
+    pct <- prop.table(tbl)
+    rare_levels <- names(pct[pct < threshold])
+    if(length(rare_levels) > 0) {
+      rare_info[[var]] <- data.frame(
+        Level = rare_levels,
+        Count = as.numeric(tbl[rare_levels]),
+        Percent = round(as.numeric(pct[rare_levels]) * 100, 2)
+      )
+    }
+  }
+  return(rare_info)
+}
+
+# Check for rare levels
+rare_levels <- check_rare_levels(FFdf, threshold = 0.05)
+cat("\nVariables with rare levels (< 5%):\n")
+print(names(rare_levels))
+
+# Display level distributions for key categorical variables
+cat("\n--- Sex Distribution ---\n")
+print(table(FFdf$Sex, useNA = "ifany"))
+
+cat("\n--- Marital Distribution ---\n")
+print(table(FFdf$Marital, useNA = "ifany"))
+
+cat("\n--- Account_Type Distribution ---\n")
+print(table(FFdf$Account_Type, useNA = "ifany"))
+
+cat("\n--- Educational_Level Distribution ---\n")
+print(table(FFdf$Educational_Level, useNA = "ifany"))
+```
+
+```{r step6_handle_categorical, echo=FALSE}
+# Handle Marital "U" (Unknown) - treat as NA for analysis purposes
+# Create backup first
+FFdf$Marital_Original <- FFdf$Marital
+
+# Option: Convert "U" to NA (uncomment if desired)
+# FFdf$Marital[FFdf$Marital == "U"] <- NA
+# FFdf$Marital <- droplevels(FFdf$Marital)
+
+cat("Marital 'U' (Unknown) count:", sum(FFdf$Marital == "U", na.rm = TRUE), "\n")
+cat("Decision: Keep 'U' as separate level for now - may represent meaningful unknown status\n")
+
+# Check for levels that might mean the same thing
+cat("\n--- State_Name levels ---\n")
+print(length(levels(FFdf$State_Name)))
+cat("Number of unique states:", length(unique(FFdf$State_Name)), "\n")
+```
+
+```{r step6_lump_rare_levels, echo=FALSE}
+# Fix Mult_Loc "Y" -> "Yes" BEFORE lumping, so both merge into "Yes" (not separately into "Other")
+levels(FFdf$Mult_Loc)[levels(FFdf$Mult_Loc) == "Y"] <- "Yes"
+
+# Lump rare factor levels into "Other" using forcats::fct_lump_prop()
+# Threshold: levels appearing in < 5% of non-NA observations are combined
+
+# Store original levels for reference
+factor_vars_to_lump <- names(FFdf)[sapply(FFdf, is.factor)]
+
+# Exclude variables we handle separately (State_Name -> Region, Marital already reviewed)
+skip_vars <- c("State_Name", "State_Loc", "Marital", "Marital_Original","Educational_Level","Seating_Location","Favorite_Caps_Player","Job_Sector")
+lump_vars <- setdiff(factor_vars_to_lump, skip_vars)
+
+cat("=== LUMPING RARE LEVELS (< 5%) INTO 'Other' ===\n\n")
+
+for(var in lump_vars) {
+  original_levels <- nlevels(FFdf[[var]])
+  FFdf[[var]] <- fct_lump_prop(FFdf[[var]], prop = 0.05, other_level = "Other")
+  new_levels <- nlevels(FFdf[[var]])
+
+  if(original_levels != new_levels) {
+    cat(var, ": ", original_levels, " -> ", new_levels, " levels\n", sep = "")
+    print(table(FFdf[[var]], useNA = "ifany"))
+    cat("\n")
+  }
+}
+
+cat("Lumping complete.\n")
+```
+
+```{r step6_group_states_by_region, echo=FALSE}
+
+
+# Define region mappings
+northeast <- c("Connecticut", "Maine", "Massachusetts", "New Hampshire",
+               "Rhode Island", "Vermont", "New Jersey", "New York", "Pennsylvania")
+
+midwest <- c("Illinois", "Indiana", "Michigan", "Ohio", "Wisconsin",
+             "Iowa", "Kansas", "Minnesota", "Missouri", "Nebraska",
+             "North Dakota", "South Dakota")
+
+south <- c("Delaware", "Florida", "Georgia", "North Carolina",
+           "South Carolina", "West Virginia",
+           "Alabama", "Kentucky", "Mississippi", "Tennessee",
+           "Arkansas", "Louisiana", "Oklahoma", "Texas")
+
+west <- c("Arizona", "Colorado", "Idaho", "Montana", "Nevada", "New Mexico",
+          "Utah", "Wyoming", "Alaska", "California", "Hawaii", "Oregon", "Washington")
+
+dcarea <- c("Maryland","Virginia", "District of Columbia")
+
+# Create Region variable
+FFdf$Region <- case_when(
+  FFdf$State_Name %in% northeast ~ "Northeast",
+  FFdf$State_Name %in% midwest ~ "Midwest",
+  FFdf$State_Name %in% south ~ "South",
+  FFdf$State_Name %in% west ~ "West",
+  FFdf$State_Name %in% dcarea ~ "DCArea",
+  TRUE ~ "Other"  # Catch any unmatched states
+)
+
+# Convert to factor
+FFdf$Region <- as.factor(FFdf$Region)
+
+# Display region distribution
+cat("--- Region Distribution (grouped from State_Name) ---\n")
+print(table(FFdf$Region, useNA = "ifany"))
+cat("\nRegion percentages:\n")
+print(round(prop.table(table(FFdf$Region)) * 100, 2))
+
+# Check if any states weren't mapped
+unmatched_states <- unique(FFdf$State_Name[FFdf$Region == "Other"])
+if(length(unmatched_states) > 0) {
+  cat("\nWarning - Unmatched states assigned to 'Other':\n")
+  print(unmatched_states)
+} else {
+  cat("\nAll states successfully mapped to regions.\n")
+}
+```
+
+**Step 6 Observations:**
+
+- Marital has "U" (Unknown) level - kept as separate category for now
+- Educational_Level could be made ordinal if needed for certain models
+- **State_Name grouped into US regions** - reduces cardinality from 50 levels to 5 (Northeast, Midwest, South, West, DCArea)
+- **Rare levels (< 5%) lumped into "Other"** using `fct_lump_prop()` for all applicable factor variables
+
+---
+
+**Step 7: Remove Zero-Variance Predictors**
+
+
+
+```{r step7_zero_variance, echo=FALSE}
+# Function to identify zero-variance columns
+find_zero_variance <- function(df) {
+  zv_cols <- c()
+  for(col in names(df)) {
+    unique_vals <- length(unique(na.omit(df[[col]])))
+    if(unique_vals <= 1) {
+      zv_cols <- c(zv_cols, col)
+    }
+  }
+  return(zv_cols)
+}
+
+# Find zero-variance columns
+zero_var_cols <- find_zero_variance(FFdf)
+cat("Zero-variance columns found:", length(zero_var_cols), "\n")
+
+if(length(zero_var_cols) > 0) {
+  cat("Columns with zero variance:\n")
+  print(zero_var_cols)
+
+  # Store in excluded columns list
+  excluded_cols <- zero_var_cols
+
+  # Remove zero-variance columns
+  FFdf <- FFdf[, !names(FFdf) %in% zero_var_cols]
+  cat("\nRemoved", length(zero_var_cols), "zero-variance columns\n")
+} else {
+  cat("No zero-variance columns found\n")
+  excluded_cols <- c()
+}
+
+cat("Remaining columns:", ncol(FFdf), "\n")
+```
+
+**Step 7 Results:**
+
+The following 8 zero-variance columns were identified and removed:
+
+- **Address, Name, PhoneNum**: PII columns - 100% missing (intentionally scrubbed)
+- **InfRate, UnempRate**: Economic indicators - likely constant for this snapshot
+- **Last_Team_Championship, NHL_Team_Record, Playoffs**: Team-related constants
+
+These columns provide no predictive value since every observation has the same value (or all NA).
+
+---
+
+## Class 4: Data Cleaning Process: Steps 8-11
+
+**Step 8: Handle Near Zero-Variance Predictors**
+
+
+```{r step8_near_zero_variance, echo=FALSE}
+# Function to find near-zero variance columns
+# A column is NZV if one value dominates (e.g., >95% of values)
+find_near_zero_variance <- function(df, threshold = 0.95) {
+  nzv_info <- data.frame(
+    Variable = character(),
+    DominantValue = character(),
+    DominantPct = numeric(),
+    UniqueValues = integer(),
+    stringsAsFactors = FALSE
+  )
+
+  for(col in names(df)) {
+    if(is.numeric(df[[col]]) || is.factor(df[[col]])) {
+      tbl <- table(df[[col]], useNA = "no")
+      if(length(tbl) > 0) {
+        max_pct <- max(tbl) / sum(tbl)
+        if(max_pct >= threshold) {
+          dominant_val <- names(tbl)[which.max(tbl)]
+          nzv_info <- rbind(nzv_info, data.frame(
+            Variable = col,
+            DominantValue = as.character(dominant_val),
+            DominantPct = round(max_pct * 100, 2),
+            UniqueValues = length(tbl),
+            stringsAsFactors = FALSE
+          ))
+        }
+      }
+    }
+  }
+  return(nzv_info)
+}
+
+# Find near-zero variance columns (>95% one value)
+nzv_cols <- find_near_zero_variance(FFdf, threshold = 0.95)
+cat("Near-zero variance columns (>95% one value):\n")
+print(nzv_cols)
+```
+
+```{r step8_handle_nzv, echo=FALSE}
+# Decision: Flag NZV columns but don't remove yet
+# These may still be useful predictors depending on modeling goals
+nzv_variables <- nzv_cols$Variable
+
+if(length(nzv_variables) > 0) {
+  cat("Near-zero variance variables to monitor:\n")
+  print(nzv_variables)
+  cat("\nDecision: Keep for now but flag for potential exclusion during modeling\n")
+} else {
+  cat("No significant near-zero variance issues found\n")
+}
+```
+
+**Step 8 Results:**
+
+Near-zero variance columns identified (>95% one value):
+
+| Variable | Dominant Value | Dominant % |
+|----------|----------------|------------|
+| Additional_Seats | 0 | 96.99% |
+| Mult_Loc | No | 96.99% |
+
+**Observations:**
+
+- **Additional_Seats**: 97% of customers have 0 additional seats - consider binning (0 vs >0)
+- **Mult_Loc**: 97% are "No" - low information but may still be predictive for the 3% minority
+- Decision: Keep for now but flag for potential exclusion during modeling
+- May cause issues with some modeling techniques (especially regression-based)
+
+---
+
+**Step 9: Remove Redundant Columns and Linear Combination Columns**
+
+
+```{r step9_redundant, echo=FALSE}
+# Check for redundant categorical columns (State_Name vs State_Loc)
+cat("--- Checking State_Name vs State_Loc redundancy ---\n")
+if("State_Name" %in% names(FFdf) && "State_Loc" %in% names(FFdf)) {
+  # Check if they're perfectly correlated
+  state_comparison <- table(FFdf$State_Name, FFdf$State_Loc)
+  cat("State_Name unique values:", length(unique(FFdf$State_Name)), "\n")
+  cat("State_Loc unique values:", length(unique(FFdf$State_Loc)), "\n")
+
+  # If one-to-one mapping, they're redundant
+  cat("\nDecision: State_Name and State_Loc appear to be the same information.\n")
+  cat("Removing State_Loc (keeping State_Name)\n")
+
+  excluded_cols <- c(excluded_cols, "State_Loc")
+  FFdf$State_Loc <- NULL
+}
+
+# Check correlation matrix for numeric variables
+numeric_vars <- names(FFdf)[sapply(FFdf, is.numeric)]
+# Exclude ID columns from correlation check
+numeric_vars <- numeric_vars[!numeric_vars %in% c("ID", "Cust_ID")]
+
+if(length(numeric_vars) > 1) {
+  # Calculate correlation matrix (handling NAs)
+  cor_matrix <- cor(FFdf[, numeric_vars], use = "pairwise.complete.obs")
+
+  # Find highly correlated pairs at multiple thresholds
+  cat("\n--- Highly correlated variable pairs (|r| > 0.85) ---\n")
+  cat("These pairs may cause multicollinearity in regression models\n\n")
+
+  high_cor_85 <- which(abs(cor_matrix) > 0.85 & abs(cor_matrix) < 1, arr.ind = TRUE)
+
+  if(nrow(high_cor_85) > 0) {
+    cor_pairs <- data.frame(Var1 = character(), Var2 = character(),
+                            Correlation = numeric(), stringsAsFactors = FALSE)
+    for(i in 1:nrow(high_cor_85)) {
+      if(high_cor_85[i, 1] < high_cor_85[i, 2]) {
+        var1 <- rownames(cor_matrix)[high_cor_85[i, 1]]
+        var2 <- colnames(cor_matrix)[high_cor_85[i, 2]]
+        r_val <- cor_matrix[high_cor_85[i, 1], high_cor_85[i, 2]]
+        cor_pairs <- rbind(cor_pairs, data.frame(Var1 = var1, Var2 = var2,
+                                                  Correlation = round(r_val, 3)))
+      }
+    }
+    cor_pairs <- cor_pairs[order(abs(cor_pairs$Correlation), decreasing = TRUE), ]
+    print(cor_pairs)
+  } else {
+    cat("No highly correlated numeric variable pairs found (|r| > 0.85)\n")
+  }
+}
+```
+
+```{r step9_correlation_plot, echo=FALSE, fig.width=10, fig.height=8}
+# Visualize correlation matrix for numeric variables
+if(length(numeric_vars) > 2) {
+  # Subset to variables with fewer missing values for cleaner plot
+  complete_vars <- numeric_vars[colSums(is.na(FFdf[, numeric_vars])) < nrow(FFdf) * 0.5]
+
+  if(length(complete_vars) > 2) {
+    cor_subset <- cor(FFdf[, complete_vars], use = "pairwise.complete.obs")
+    corrplot(cor_subset, method = "color", type = "upper",
+             tl.cex = 0.7, tl.col = "black",
+             title = "Correlation Matrix - Numeric Variables",
+             mar = c(0, 0, 2, 0))
+  }
+}
+```
+
+```{r step9_handle_multicollinearity, echo=FALSE}
+# Address multicollinearity based on correlation matrix analysis
+cat("=== MULTICOLLINEARITY ANALYSIS ===\n\n")
+
+# Identify correlated variable clusters from the correlation matrix
+cat("Cluster 1: Spending & Visit variables\n")
+cat("  - Rep_Visits <-> Total_Spent: r = 0.947 (very strong positive)\n")
+cat("  - Team_Store_Total <-> Total_Spent: r = 0.853 (strong positive)\n")
+cat("  Recommendation: Consider removing Rep_Visits or Total_Spent\n\n")
+
+cat("Cluster 2: Concession & Seating\n")
+cat("  - Concession_Total <-> NumSeats: r = 0.915 (strong positive)\n")
+cat("  Recommendation: Makes business sense - more seats = more concessions\n\n")
+
+cat("Cluster 3: Attendance pairs\n")
+cat("  - Weekday_Attended <-> Weekday_Sold: r = -0.946 (strong NEGATIVE)\n")
+cat("  Note: Negative correlation suggests inverse relationship\n")
+cat("  Recommendation: Keep both - they capture different behaviors\n\n")
+
+# Create list of variables to flag for multicollinearity
+multicollinear_vars <- c("Rep_Visits", "Team_Store_Total")
+cat("Variables flagged for potential removal due to multicollinearity:\n")
+print(multicollinear_vars)
+
+# Option: Remove highly correlated variables (uncomment to execute)
+# FFdf <- FFdf[, !names(FFdf) %in% multicollinear_vars]
+# excluded_cols <- c(excluded_cols, multicollinear_vars)
+cat("\nDecision: Flag but keep for now; remove during modeling if VIF > 10\n")
+```
+
+**Step 9 Observations:**
+
+Based on the correlation matrix analysis (actual results from output above):
+
+| Cluster | Variables | Correlation | Recommendation |
+|---------|-----------|-------------|----------------|
+| 1 | Rep_Visits vs Total_Spent | r = 0.947 | Remove Rep_Visits |
+| 1 | Team_Store_Total vs Total_Spent | r = 0.853 | Monitor for VIF |
+| 2 | Concession_Total vs NumSeats | r = 0.915 | Keep - business logic |
+| 3 | Weekday_Attended vs Weekday_Sold | r = -0.946 | Keep both - inverse relationship |
+| - | State_Loc vs State_Name | Redundant | **REMOVED** |
+
+**Action Items:**
+- State_Loc removed (redundant with State_Name)
+- Flagged 2 variables for potential removal: Rep_Visits, Team_Store_Total
+- Will check VIF during modeling phase and remove if VIF > 10
+
+---
+
+**Step 10: Search for Outliers and Initial Search for Missing Values**
+
+```{r step10_outliers, echo=FALSE, fig.width=10, fig.height=8}
+# Boxplots for key numeric variables to identify outliers
+par(mfrow = c(2, 3))
+
+# Age
+boxplot(FFdf$Age, main = "Age", col = "lightblue", outline = TRUE)
+age_outliers <- boxplot.stats(FFdf$Age)$out
+cat("Age outliers (IQR method):", length(age_outliers), "values\n")
+
+# Tenure
+boxplot(FFdf$Tenure, main = "Tenure", col = "lightblue", outline = TRUE)
+tenure_outliers <- boxplot.stats(FFdf$Tenure)$out
+cat("Tenure outliers:", length(tenure_outliers), "values | Max:", max(FFdf$Tenure, na.rm = TRUE), "\n")
+
+# Total_Spent
+boxplot(FFdf$Total_Spent, main = "Total_Spent", col = "lightblue", outline = TRUE)
+
+# NumSeats
+boxplot(FFdf$NumSeats, main = "NumSeats", col = "lightblue", outline = TRUE)
+
+# Survey_Comp
+boxplot(FFdf$Survey_Comp, main = "Survey_Comp", col = "lightblue", outline = TRUE)
+survey_outliers <- sum(FFdf$Survey_Comp > 1, na.rm = TRUE)
+cat("Survey_Comp values > 1:", survey_outliers, "\n")
+
+# DistA
+boxplot(FFdf$DistA, main = "DistA", col = "lightblue", outline = TRUE)
+
+par(mfrow = c(1, 1))
+```
+
+```{r step10_missing_assessment, echo=FALSE, fig.width=10, fig.height=6}
+# Comprehensive missing data assessment
+cat("=== MISSING DATA ASSESSMENT ===\n\n")
+
+# Total missing values
+total_missing <- sum(is.na(FFdf))
+total_cells <- nrow(FFdf) * ncol(FFdf)
+cat("Total missing values:", total_missing, "out of", total_cells,
+    "(", round(total_missing/total_cells * 100, 2), "%)\n\n")
+
+# Missing by column
+na_by_col <- colSums(is.na(FFdf))
+na_by_col <- na_by_col[na_by_col > 0]
+na_by_col <- sort(na_by_col, decreasing = TRUE)
+
+cat("Columns with missing values:\n")
+na_summary <- data.frame(
+  Variable = names(na_by_col),
+  Missing_Count = as.numeric(na_by_col),
+  Missing_Pct = round(as.numeric(na_by_col) / nrow(FFdf) * 100, 2)
+)
+print(na_summary)
+
+```
+
+```{r step10_outlier_decisions, echo=FALSE}
+# Document outlier decisions
+cat("\n=== OUTLIER DECISIONS ===\n\n")
+
+# Tenure = 400 (suspicious if years)
+cat("1. Tenure max = 400:\n")
+cat("   - If measured in years, this is impossible\n")
+cat("   - May be measured in months (400 months = 33 years - plausible)\n")
+cat("   - ACTION: Verify units with SME; flag for review\n\n")
+
+# Age = 99
+cat("2. Age = 99:\n")
+cat("   - Could be real (elderly customer) or placeholder\n")
+cat("   - ACTION: Verify with SME; consider if 99 is data entry default\n\n")
+
+# Survey_Comp > 1
+cat("3. Survey_Comp values > 1 (expected 0-1 range):\n")
+cat("   - Count:", sum(FFdf$Survey_Comp > 1, na.rm = TRUE), "\n")
+cat("   - Max value:", max(FFdf$Survey_Comp, na.rm = TRUE), "\n")
+cat("   - ACTION: Possible scale issue; cap at 1 or investigate data source\n\n")
+
+# Create outlier flags for further analysis
+FFdf$Flag_Tenure_High <- ifelse(FFdf$Tenure > 100, 1, 0)
+FFdf$Flag_Survey_Invalid <- ifelse(FFdf$Survey_Comp > 1, 1, 0)
+
+cat("Created outlier flag variables: Flag_Tenure_High, Flag_Survey_Invalid\n")
+```
+
+---
+
+**Step 11: Sanity Check Using Decision Tree (1 to 2 splits)**
+
+
+```{r step11_decision_tree, echo=FALSE, fig.width=10, fig.height=8}
+# Prepare data for decision tree
+# Exclude ID columns, flag variables, and high-cardinality variables
+exclude_from_tree <- c("ID", "Cust_ID", "Flag_Tenure_High", "Flag_Survey_Invalid",
+                       "Marital_Original", "Last_Contact", "Contact_Year",
+                       "Contact_Month", "Contact_Day", "Contact_Weekday", "Contact_Hour",
+                       "State_Name", "Zip_Codes")
+
+tree_vars <- names(FFdf)[!names(FFdf) %in% exclude_from_tree]
+tree_data <- FFdf[, tree_vars]
+
+# Remove rows with NA in response variable
+tree_data <- tree_data[!is.na(tree_data$Y01), ]
+
+# Convert Y01 to factor for classification tree
+tree_data$Y01 <- as.factor(tree_data$Y01)
+
+# Build a simple decision tree (max 2-3 splits for sanity check)
+# Uses Region variable (from Step 6) instead of high-cardinality State_Name/Zip_Codes
+sanity_tree <- rpart(Y01 ~ .,
+                     data = tree_data,
+                     method = "class",
+                     control = rpart.control(maxdepth = 3, minsplit = 20, cp = 0.01))
+
+# Plot the tree
+rpart.plot(sanity_tree,
+           main = "Sanity Check Decision Tree (max depth = 3)",
+           extra = 104,  # Show percentage and count
+           box.palette = "RdYlGn")
+
+# Variable importance
+cat("\n=== VARIABLE IMPORTANCE ===\n")
+if(length(sanity_tree$variable.importance) > 0) {
+  var_imp <- sort(sanity_tree$variable.importance, decreasing = TRUE)
+  print(head(var_imp, 10))
+} else {
+  cat("No variables selected by the tree\n")
+}
+```
+
+```{r step11_tree_analysis, echo=FALSE}
+# Analyze tree results
+cat("\n=== SANITY CHECK ANALYSIS ===\n\n")
+
+# Check tree performance
+predictions <- predict(sanity_tree, tree_data, type = "class")
+accuracy <- mean(predictions == tree_data$Y01, na.rm = TRUE)
+cat("Tree accuracy:", round(accuracy * 100, 2), "%\n")
+
+if(accuracy > 0.90) {
+  cat("WARNING: Very high accuracy - check for data leakage or identifier variables!\n")
+} else {
+  cat("Accuracy is reasonable - no obvious data leakage detected\n")
+}
+```
+
+**Step 11 Results:**
+
+The decision tree uses Region (from Step 6) instead of raw State_Name/Zip_Codes to avoid overfitting from high-cardinality variables.
+
+Top Variable Importance:
+
+| Variable | Importance |
+|----------|------------|
+| Region | 1505.2 |
+| Favorite_Team | 253.5 |
+| PerUsed | 245.2 |
+| DistA | 196.8 |
+| Tenure | 187.7 |
+
+**Analysis:**
+
+- **Accuracy ~88%** - reasonable, no obvious data leakage
+- **Region is the dominant predictor** - geographic location strongly predicts Y01
+- **No high-cardinality variables** causing artificial inflation of accuracy
+
+---
+
+## Summary of Steps 6-11 (Data Cleaning Complete)
+
+```{r final_summary, echo=FALSE}
+cat("=== DATA CLEANING SUMMARY (Steps 6-11) ===\n\n")
+
+cat("Step 6 - Handle Categorical Variables:\n")
+cat("  - Rare factor levels (< 5%) lumped into 'Other' via fct_lump_prop()\n")
+cat("  - Marital 'U' kept as separate category\n")
+cat("  - State_Name grouped into US Census regions\n\n")
+
+cat("Step 7 - Zero-Variance Predictors:\n")
+cat("  - Columns removed:", length(zero_var_cols), "\n\n")
+
+cat("Step 8 - Near Zero-Variance Predictors:\n")
+cat("  - Variables flagged:", length(nzv_variables), "\n")
+cat("  - Decision: Keep for now but monitor during modeling\n\n")
+
+cat("Step 9 - Redundant Columns:\n")
+cat("  - State_Loc removed (redundant with State_Name)\n")
+cat("  - Correlation matrix reviewed for multicollinearity\n\n")
+
+cat("Step 10 - Outliers & Missing Data:\n")
+cat("  - Total missing values:", sum(is.na(FFdf)), "\n")
+cat("  - Outlier flags created for Tenure and Survey_Comp\n")
+cat("  - Missing data summary table generated\n\n")
+
+cat("Step 11 - Decision Tree Sanity Check:\n")
+cat("  - Tree accuracy:", round(accuracy * 100, 2), "%\n")
+cat("  - Review variable importance for potential data leakage\n\n")
+
+cat("Final dataset dimensions:", nrow(FFdf), "rows x", ncol(FFdf), "columns\n")
+
+# Save cleaned dataset for next phase (Missing Data)
+write.csv(FFdf, "FFdf_cleaned.csv", row.names = FALSE)
+cat("\nCleaned dataset saved to: FFdf_cleaned.csv\n")
+```
+
+### Issues Identified for Further Action:
+
+| Step | Issue | Recommendation |
+|------|-------|----------------|
+| 6 | Marital "U" unknown | Keep as category or convert to NA during imputation |
+| 6 | Rare factor levels (< 5%) | **RESOLVED:** Lumped into "Other" via fct_lump_prop() |
+| 6 | State_Name high cardinality | **RESOLVED:** Grouped into US Census regions |
+| 7 | Zero-variance columns | Removed from dataset |
+| 8 | Near-zero variance | Monitor during modeling; consider binning |
+| 9 | State_Loc redundant | Removed |
+| 10 | Tenure = 400 | Verify units with SME (years vs months?) |
+| 10 | Survey_Comp > 1 | Investigate scale/cap values at 1 |
+| 10 | Missing data patterns | Address in Missing Data phase (Class 5+) |
+| 11 | Tree predictors | **RESOLVED:** Using Region variable instead of State_Name |
+
+---
+
+## Missing Data Analysis: Steps 1-6
+
+
+### MD Step 1: Identify Missing Data
+
+Rename to MDdf and count all missing values by variable.
+
+```{r md_step1_identify, echo=TRUE, fig.width=10, fig.height=8}
+MDdf <- FFdf
+
+missing_summary <- data.frame(
+  Variable     = names(MDdf),
+  Missing_Count = colSums(is.na(MDdf)),
+  Missing_Pct  = round(colSums(is.na(MDdf)) / nrow(MDdf) * 100, 1)
+) %>% filter(Missing_Count > 0) %>% arrange(desc(Missing_Count))
+
+cat("Total missing:", sum(is.na(MDdf)), "of", nrow(MDdf)*ncol(MDdf), "cells (",
+    round(sum(is.na(MDdf))/(nrow(MDdf)*ncol(MDdf))*100,1), "%)\n")
+
+flextable(missing_summary) %>%
+  set_header_labels(Variable="Variable", Missing_Count="Missing (n)", Missing_Pct="Missing (%)") %>%
+  autofit()
+```
+
+**Observations:**
+
+- 12.2% overall missing; 7 CustomerDF variables (Educational_Level, Favorite_Caps_Player, Favorite_Sport, Job_Sector, Mode_Of_Transport, Team_B_STH, Team_C_STH) all missing at exactly 70% — likely a block from customers who skipped a supplemental survey.
+- Net_Worth_True (61%) and HouseHold_Income_True (60%) are high — sensitive financial fields.
+- DistA (30.6%) includes 999-placeholder NAs converted in Step 4.
+- Moderate missingness (5–15%): Marital, Age, Rep_Name, Sex, Tenure, Rep_Visits, Rep_Calls, Num_Children.
+
+---
+
+### MD Step 2: Mark Missing Data
+
+Create binary indicator variables (M_VarName: 1 = missing, 0 = present) for all variables with NAs. Indicators allow MCAR/MAR testing and preserve pre-imputation missingness structure.
+
+```{r md_step2_mark, echo=TRUE, fig.width=10, fig.height=8}
+vars_with_na <- names(MDdf)[colSums(is.na(MDdf)) > 0]
+vars_with_na <- vars_with_na[!vars_with_na %in% c("Marital_Original", "Flag_Tenure_High")]
+
+for(var in vars_with_na) {
+  MDdf[[paste0("M_", var)]] <- ifelse(is.na(MDdf[[var]]), 1, 0)
+}
+
+indicator_vars <- grep("^M_", names(MDdf), value = TRUE)
+cat("Indicator variables created:", length(indicator_vars), "\n")
+
+# Correlation of indicators — high r = missing as a block
+indicator_matrix <- MDdf[, indicator_vars]
+indicator_matrix <- indicator_matrix[, sapply(indicator_matrix, stats::var) > 0]
+cor_indicators <- cor(indicator_matrix)
+
+corrplot(cor_indicators, method = "color", type = "upper",
+         tl.cex = 0.7, tl.col = "black",
+         title = "Correlation of Missing Data Indicators",
+         mar = c(0, 0, 2, 0))
+```
+
+**Observations:**
+
+- The 7 CustomerDF block variables have perfect indicator correlation (r = 1.0), confirming they are missing together.
+- Net_Worth_True and HouseHold_Income_True indicators are moderately correlated — missing together as financial fields.
+
+---
+
+### MD Step 3: Clean Up Obvious Mistakes
+
+Fix values that are wrong or that should be coded as NA.
+
+```{r md_step3_cleanup, echo=TRUE}
+# Survey_Comp > 1: cap at 1.0 (proportion cannot exceed 100%)
+cat("Survey_Comp > 1 count:", sum(MDdf$Survey_Comp > 1, na.rm = TRUE), "| max:", max(MDdf$Survey_Comp, na.rm = TRUE), "\n")
+MDdf$Survey_Comp[MDdf$Survey_Comp > 1] <- 1.0
+cat("Survey_Comp after cap:", range(MDdf$Survey_Comp, na.rm = TRUE), "\n\n")
+
+# Marital "U": keep as valid level — unknown status is informative
+cat("Marital 'U' count:", sum(MDdf$Marital == "U", na.rm = TRUE), "— KEPT as distinct level\n")
+cat("Marital true NAs:", sum(is.na(MDdf$Marital)), "\n\n")
+
+# Tenure / Age extremes: flag only, leave for SME
+cat("Tenure > 100:", sum(MDdf$Tenure > 100, na.rm = TRUE), "| Age == 99:", sum(MDdf$Age == 99, na.rm = TRUE), "— flagged, left as-is\n")
+cat("Total missing after cleanup:", sum(is.na(MDdf)), "\n")
+```
+
+**Observations:**
+
+- Survey_Comp: 110 values capped at 1.0 (data entry errors on a 0–1 proportion scale).
+- Marital "U" (248 values): kept — preserves information, lets model treat "Unknown" as its own category. True NAs still go to MICE.
+- Tenure = 400 / Age = 99: left pending SME confirmation of units.
+
+---
+
+### MD Step 4: Make Easy Decisions on Rows/Columns
+
+Define which columns are excluded from imputation (non-analytical only). No rows excluded. All variables with missing data — including the 70% block — are imputed.
+
+```{r md_step4_decisions, echo=TRUE}
+id_cols       <- c("ID", "Cust_ID")
+backup_cols   <- c("Marital_Original", "Flag_Tenure_High", "Flag_Survey_Invalid")
+date_cols     <- c("Last_Contact","Contact_Year","Contact_Month","Contact_Day","Contact_Weekday","Contact_Hour")
+high_card_cols <- c("State_Name", "Zip_Codes", "Seating_Location")
+indicator_cols <- grep("^M_", names(MDdf), value = TRUE)
+
+all_exclude <- c(id_cols, backup_cols, date_cols, high_card_cols, indicator_cols)
+impute_vars  <- names(MDdf)[!names(MDdf) %in% all_exclude]
+impute_with_na <- impute_vars[colSums(is.na(MDdf[, impute_vars])) > 0]
+
+cat("Columns excluded from imputation:", length(all_exclude), "\n")
+cat("Imputation-eligible variables:", length(impute_vars), "| with NAs:", length(impute_with_na), "\n\n")
+
+# Row missing summary
+row_na <- rowSums(is.na(MDdf[, impute_vars]))
+cat("Row NA distribution among eligible columns:\n")
+cat("  0 missing:", sum(row_na == 0), "| 1-3:", sum(row_na >= 1 & row_na <= 3),
+    "| 4-6:", sum(row_na >= 4 & row_na <= 6), "| 7+:", sum(row_na > 6), "\n")
+cat("Decision: No rows excluded.\n")
+```
+
+**Observations:**
+
+- Excluded: ID/Cust_ID, derived backup/flag columns, date components, high-cardinality cols (State_Name, Zip_Codes, Seating_Location), all M_ indicators.
+- All variables with missing data are kept for imputation — including the 70% block — to observe the full effect on modeling.
+
+---
+
+### MD Step 5: Assess Missingness Patterns (MCAR vs MAR)
+
+Use decision trees predicting each variable's M_ indicator. If the tree finds splits, missingness is predictable from other data → MAR. No splits → likely MCAR.
+
+```{r md_step5_trees, echo=TRUE, fig.width=10, fig.height=7}
+predictor_candidates <- impute_vars[colSums(is.na(MDdf[, impute_vars])) == 0]
+complete_predictors  <- MDdf[, predictor_candidates]
+
+# Drop high-cardinality factors and logical columns
+complete_predictors <- complete_predictors[, sapply(complete_predictors, function(x)
+  !(is.factor(x) && nlevels(x) > 30))]
+complete_predictors <- as.data.frame(lapply(complete_predictors, function(x)
+  if(is.logical(x)) as.integer(x) else x))
+
+results <- data.frame(Variable=character(), Splits=integer(), Accuracy=numeric(),
+                      Top_Predictor=character(), Assessment=character(), stringsAsFactors=FALSE)
+
+for(var in impute_with_na) {
+  target <- factor(MDdf[[paste0("M_", var)]], levels=c(0,1), labels=c("Present","Missing"))
+  tree_data <- cbind(Target=target, complete_predictors)
+  tree_model <- rpart(Target ~ ., data=tree_data, method="class",
+                      control=rpart.control(maxdepth=3, minsplit=50, cp=0.01))
+
+  n_splits <- nrow(tree_model$frame[tree_model$frame$var != "<leaf>", ])
+  acc      <- round(mean(predict(tree_model, tree_data, type="class") == target) * 100, 1)
+  top_pred <- if(length(tree_model$variable.importance) > 0) names(tree_model$variable.importance)[1] else "None"
+  assessment <- if(n_splits == 0) "Likely MCAR" else if(acc > 85) "MAR" else "Possibly MAR"
+
+  results <- rbind(results, data.frame(Variable=var, Splits=n_splits, Accuracy=acc,
+                                       Top_Predictor=top_pred, Assessment=assessment,
+                                       stringsAsFactors=FALSE))
+}
+
+flextable(results) %>%
+  set_header_labels(Variable="Variable", Splits="Splits", Accuracy="Accuracy (%)",
+                    Top_Predictor="Top Predictor", Assessment="Assessment") %>%
+  color(~ Assessment == "MAR",         ~ Assessment, color="red") %>%
+  color(~ Assessment == "Likely MCAR", ~ Assessment, color="darkgreen") %>%
+  color(~ Assessment == "Possibly MAR",~ Assessment, color="orange") %>%
+  autofit()
+```
+
+```{r md_step5_tree_plots, echo=TRUE, fig.width=10, fig.height=7}
+vars_with_splits <- results$Variable[results$Splits > 0]
+for(var in vars_with_splits[1:min(4, length(vars_with_splits))]) {
+  target     <- factor(MDdf[[paste0("M_", var)]], levels=c(0,1), labels=c("Present","Missing"))
+  tree_model <- rpart(Target ~ ., data=cbind(Target=target, complete_predictors), method="class",
+                      control=rpart.control(maxdepth=3, minsplit=50, cp=0.01))
+  rpart.plot(tree_model, main=paste("Missingness:", var, "—", results$Assessment[results$Variable==var]),
+             extra=104, box.palette="RdYlGn")
+}
+```
+
+**Observations:**
+
+- **MAR** (splits found): DistA, Most_Purch_Concession — missingness predicted by other variables.
+- **Likely MCAR** (no splits): variables where missingness is unpredictable from observed data.
+- **7 CustomerDF block variables**: likely MNAR (customers who skipped the survey differ systematically). Imputed anyway to observe effect; interpret with caution.
+
+---
+
+### MD Step 6: Simple (Univariate) Imputation
+
+Handle variables with small missingness using simple methods before MICE. **Management dictates** stochastic (independent) imputation for Rep_Calls and Rep_Name, and regression-based imputation for Age.
+
+| Variable | % Missing | Method |
+|----------|-----------|--------|
+| Num_Children | 4.3% | Median |
+| Rep_Visits | 5.4% | Median |
+| Most_Purch_Concession | 0.9% | Mode |
+| Sex | 7.1% | Mode |
+| Rep_Calls | 4.6% | **Mgmt Dictate** — Stochastic (independent) |
+| Rep_Name | 9.2% | **Mgmt Dictate** — Stochastic (independent) |
+| Age | 10.4% | **Mgmt Dictate** — Regression (other vars) |
+| Remaining 12 vars | 6–70% | → MICE (Step 7) |
+
+```{r md_step6_simple, echo=TRUE}
+get_mode <- function(x) { x <- x[!is.na(x)]; ux <- unique(x); ux[which.max(tabulate(match(x, ux)))] }
+
+# --- Median imputation ---
+median_nc <- median(MDdf$Num_Children, na.rm=TRUE)
+MDdf$Num_Children[is.na(MDdf$Num_Children)] <- median_nc
+cat("Num_Children: imputed with median =", median_nc, "| NAs remaining:", sum(is.na(MDdf$Num_Children)), "\n")
+
+median_rv <- median(MDdf$Rep_Visits, na.rm=TRUE)
+MDdf$Rep_Visits[is.na(MDdf$Rep_Visits)] <- median_rv
+cat("Rep_Visits: imputed with median =", round(median_rv,2), "| NAs remaining:", sum(is.na(MDdf$Rep_Visits)), "\n\n")
+
+# --- Mode imputation ---
+mode_mpc <- get_mode(MDdf$Most_Purch_Concession)
+MDdf$Most_Purch_Concession[is.na(MDdf$Most_Purch_Concession)] <- mode_mpc
+cat("Most_Purch_Concession: imputed with mode =", as.character(mode_mpc), "| NAs:", sum(is.na(MDdf$Most_Purch_Concession)), "\n")
+
+mode_sex <- get_mode(MDdf$Sex)
+MDdf$Sex[is.na(MDdf$Sex)] <- mode_sex
+cat("Sex: imputed with mode =", as.character(mode_sex), "| NAs:", sum(is.na(MDdf$Sex)), "\n\n")
+
+# --- Mgmt Dictate: Stochastic (independent, sample with replacement) ---
+set.seed(42)
+observed_rc <- MDdf$Rep_Calls[!is.na(MDdf$Rep_Calls)]
+MDdf$Rep_Calls[is.na(MDdf$Rep_Calls)] <- sample(observed_rc, sum(is.na(MDdf$Rep_Calls)), replace=TRUE)
+cat("Rep_Calls: stochastic imputation | NAs:", sum(is.na(MDdf$Rep_Calls)), "\n")
+
+set.seed(123)
+observed_rn    <- MDdf$Rep_Name[!is.na(MDdf$Rep_Name)]
+level_props    <- prop.table(table(observed_rn))
+MDdf$Rep_Name[is.na(MDdf$Rep_Name)] <- sample(names(level_props), sum(is.na(MDdf$Rep_Name)),
+                                               replace=TRUE, prob=as.numeric(level_props))
+cat("Rep_Name: stochastic imputation (proportional) | NAs:", sum(is.na(MDdf$Rep_Name)), "\n")
+```
+
+```{r md_step6_age, echo=TRUE}
+# --- Mgmt Dictate: Age via linear regression on other variables ---
+age_predictors  <- c("Y01","Total_Spent","NumSeats","Tenure","First_Year_STH",
+                     "Num_Children","Rep_Calls","Rep_Visits","Concession_Total","Survey_Comp")
+available_preds <- age_predictors[sapply(age_predictors, function(v) v %in% names(MDdf) && sum(is.na(MDdf[[v]]))==0)]
+
+train_idx  <- !is.na(MDdf$Age)
+age_model  <- lm(Age ~ ., data=MDdf[train_idx, c("Age", available_preds)])
+pred_age   <- predict(age_model, newdata=MDdf[!train_idx, available_preds])
+pred_age   <- pmin(pmax(round(pred_age), min(MDdf$Age, na.rm=TRUE)), max(MDdf$Age, na.rm=TRUE))
+
+MDdf$Age[!train_idx] <- pred_age
+cat("Age: regression imputation (", length(available_preds), "predictors) | NAs:", sum(is.na(MDdf$Age)), "\n")
+cat("Predicted Age — Mean:", round(mean(pred_age),1), "| SD:", round(sd(pred_age),1),
+    "| Range:", min(pred_age), "-", max(pred_age), "\n")
+```
+
+---
+
+### Summary: MD Steps 1–6
+
+| Step | Action | Key Finding |
+|------|--------|-------------|
+| 1. Identify | Count & table all missing data | 12.2% overall; 7-variable block at 70% |
+| 2. Mark | Create M_ indicator variables | Block pattern confirmed (r = 1.0) |
+| 3. Clean | Cap Survey_Comp; keep Marital "U" | 110 values corrected |
+| 4. Decide | Define exclude list; keep all variables | No rows or analytical vars excluded |
+| 5. Assess | Decision trees on M_ indicators | Mix of MAR, MCAR, MNAR (block) |
+| 6. Impute | Median (2), Mode (2), Stochastic (2), Regression (1) | 7 variables resolved; 12 go to MICE |
+
