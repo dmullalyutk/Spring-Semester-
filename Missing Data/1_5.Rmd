@@ -1166,7 +1166,17 @@ densityplot(mice_imp, ~ DistA + Tenure + Net_Worth_True + HouseHold_Income_True)
 
 ```{r mice_complete, echo=TRUE}
 # Extract completed dataset (imputation #1)
-MDdf_imputed <- complete(mice_imp, 1)
+MDdf_imputed1 <- complete(mice_imp, 1)
+MDdf_imputed2 <- complete(mice_imp, 2)
+MDdf_imputed3 <- complete(mice_imp, 3)
+MDdf_imputed4 <- complete(mice_imp, 4)
+MDdf_imputed5 <- complete(mice_imp, 5)
+MDdf_imputed6 <- complete(mice_imp, 6)
+MDdf_imputed7 <- complete(mice_imp, 7)
+MDdf_imputed8 <- complete(mice_imp, 8)
+MDdf_imputed9 <- complete(mice_imp, 9)
+MDdf_imputed10 <- complete(mice_imp, 10)
+
 
 remaining_na <- colSums(is.na(MDdf_imputed[, impute_with_na]))
 if(sum(remaining_na) == 0) {
