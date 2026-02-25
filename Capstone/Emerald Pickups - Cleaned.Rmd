@@ -17,6 +17,7 @@ library(janitor)
 library(tidyr)
 library(ggplot2)
 library(scales)
+library(stringr)
 ```
 
 ## 1) Read pickups data
@@ -405,4 +406,163 @@ df_pa_2 <- df_pa_2 %>%
 df_pa_acs <- df_pa_2 %>% 
   left_join(pa_acs, by = "county",relationship = "many-to-one")
 ```
+
+
+```{r}
+county_climate <- read.csv("county_climate_features_clean.csv")
+
+pa_county_climate <- county_climate %>% 
+  filter(State == 'Pennsylvania' )
+
+df_pa_acs <- df_pa_acs %>% mutate(county = trimws(county))
+pa_county_climate <- pa_county_climate %>% mutate(Name = trimws(Name))
+
+df_pa_current <- df_pa_acs %>%
+  left_join(pa_county_climate, by = c("county" = "Name"), relationship = "many-to-one")
+
+
+
+```
+
+
+
+
+
+
+```{r}
+# 1) Service territory
+all_data <- read_excel("Service_Territory_2024.xlsx") %>%
+  clean_names() %>%
+  mutate(utility_number = as.character(utility_number))
+
+# 2) Meters - one row per utility
+all_meters_one <- meters %>%
+  mutate(utility_number = as.character(utility_number)) %>%
+  distinct(utility_number, .keep_all = TRUE)
+
+# 3) Join
+df_all <- all_data %>%
+  right_join(all_meters_one, by = "utility_number", relationship = "many-to-one") %>%
+  select(-ends_with(".y")) %>%
+  rename_with(~ gsub("\\.x$", "", .))
+
+# 4) Standardize names for joining
+df_all <- df_all %>%
+  mutate(
+    county = str_trim(county),
+    county = ifelse(str_detect(county, "County$"), county, paste0(county, " County")),
+    state = str_trim(state),
+    state = ifelse(nchar(state) == 2, state.name[match(state, state.abb)], state)
+  )
+
+# 5) Join ACS
+df_all_acs <- df_all %>%
+  left_join(county_acs_2024, by = c("county", "state"), relationship = "many-to-one")
+
+cat("ACS match rate:", 1 - mean(is.na(df_all_acs$total_pop)), "\n")
+
+# 6) Join climate
+county_climate <- read.csv("county_climate_features_clean.csv") %>%
+  mutate(Name = trimws(Name), State = trimws(State))
+
+df_all_current <- df_all_acs %>%
+  mutate(county = trimws(county)) %>%
+  left_join(county_climate, by = c("county" = "Name", "state" = "State"), relationship = "many-to-one")
+
+cat("Climate match rate:", 1 - mean(is.na(df_all_current$Annual_Temperature_Avg)), "\n")
+
+
+
+```
+
+```{r}
+# One row per utility with averaged county features
+df_utility <- df_all_current %>%
+  group_by(utility_number, utility_name, state, ownership, emerald_customer_y_n,
+           emerald_customer_id, emerald_customer_name,
+           residential, commercial, industrial, transportation, total_meters,
+           x2019_pickups, x2020_pickups, x2021_pickups, x2022_pickups,
+           x2023_pickups, x2024_pickups, x2025_pickups, ba_code) %>%
+  summarise(
+    n_counties = n(),
+    across(where(is.numeric) & !any_of(c("utility_number", "residential", "commercial",
+           "industrial", "transportation", "total_meters",
+           "x2019_pickups", "x2020_pickups", "x2021_pickups", "x2022_pickups",
+           "x2023_pickups", "x2024_pickups", "x2025_pickups")),
+           ~ mean(.x, na.rm = TRUE)),
+    .groups = "drop"
+  )
+
+cat("Rows:", nrow(df_utility), "\n")
+colnames(df_utility)
+```
+
+
+
+
+
+
+```{r}
+pickups_monthly <- df_raw %>%
+  mutate(customer_id = trimws(as.character(customer_id)))
+
+df_utility_monthly <- df_utility %>%
+  left_join(df_raw, by = c("emerald_customer_id" = "customer_id"), relationship = "many-to-many")
+
+df_utility_monthly <- df_utility_monthly %>%
+  select(-state.y) %>%
+  rename(state = state.x)
+
+names(df_utility_monthly)
+names(df_utility)
+names(df_all_current)
+
+```
+
+
+
+```{r}
+eia_sales <- read_excel("Sales_Ult_Cust_2024.xlsx", skip = 2) %>%
+  clean_names() %>%
+  mutate(utility_number = as.character(utility_number))
+
+eia_ops <- read_excel("Operational_Data_2024.xlsx", skip = 2) %>%
+  clean_names() %>%
+  mutate(utility_number = as.character(utility_number))
+
+colnames(eia_sales)
+colnames(eia_ops)
+```
+
+```{r}
+
+# Add EIA sales
+df_utility <- df_utility %>%
+  left_join(eia_sales_clean, by = "utility_number")
+
+df_utility_monthly <- df_utility_monthly %>%
+  left_join(eia_sales_clean, by = "utility_number")
+
+df_all_current <- df_all_current %>%
+  left_join(eia_sales_clean, by = "utility_number")
+
+# Add EIA ops
+df_utility <- df_utility %>%
+  left_join(eia_ops_clean, by = "utility_number", suffix = c("", "_ops"))
+
+df_utility_monthly <- df_utility_monthly %>%
+  left_join(eia_ops_clean, by = "utility_number", suffix = c("", "_ops"))
+
+df_all_current <- df_all_current %>%
+  left_join(eia_ops_clean, by = "utility_number", suffix = c("", "_ops"))
+
+# Check
+cat("df_utility EIA match:", mean(!is.na(df_utility$total_sales_mwh)), "\n")
+cat("df_utility_monthly EIA match:", mean(!is.na(df_utility_monthly$total_sales_mwh)), "\n")
+cat("df_all_current EIA match:", mean(!is.na(df_all_current$total_sales_mwh)), "\n")
+
+```
+
+
+
 

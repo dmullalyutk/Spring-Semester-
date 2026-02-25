@@ -1,0 +1,347 @@
+---
+title: "Emerald 2"
+output: html_document
+date: "2026-02-25"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+
+library(readxl)
+library(readr)
+library(dplyr)
+library(lubridate)
+library(janitor)
+library(stringr)
+library(purrr)
+library(tidycensus)
+```
+
+
+```{r}
+# --- A) Emerald pickups (customer-month or customer totals; one row per customer-month or customer) ---
+# What it is: Raw Emerald pickups data from Excel
+pickups_raw <- read_excel(
+  "Meters Data 2024.xlsx",
+  sheet = "Emerald Pickups",
+  range = "A1:P50074"
+) %>%
+  clean_names() %>%
+  mutate(customer_id = trimws(as.character(customer_id)))
+
+# --- B) Meter data (utility-level meter counts / customer flags / BA code, etc.) ---
+# What it is: Combined meter attributes (may contain duplicates per utility_number)
+meters_raw <- read_excel(
+  "Meters Data 2024.xlsx",
+  sheet = "Combined Meter Data"
+) %>%
+  clean_names() %>%
+  mutate(utility_number = as.character(utility_number))
+
+# --- C) Service territory (utility ↔ county rows) ---
+# What it is: Service territory mapping, typically multiple counties per utility
+territory_raw <- read_excel("Service_Territory_2024.xlsx") %>%
+  clean_names() %>%
+  mutate(utility_number = as.character(utility_number))
+```
+
+
+
+
+```{r}
+# Helper: normalize county/state formats so joins match
+normalize_county_state <- function(df, county_col = "county", state_col = "state") {
+  df %>%
+    mutate(
+      !!county_col := str_trim(.data[[county_col]]),
+      !!county_col := ifelse(str_detect(.data[[county_col]], "County$"),
+                             .data[[county_col]],
+                             paste0(.data[[county_col]], " County")),
+      !!state_col := str_trim(.data[[state_col]]),
+      # Convert 2-letter state abbreviations to full names if needed
+      !!state_col := ifelse(nchar(.data[[state_col]]) == 2,
+                            state.name[match(.data[[state_col]], state.abb)],
+                            .data[[state_col]])
+    )
+}
+
+territory_clean <- territory_raw %>%
+  normalize_county_state("county", "state")
+```
+
+```{r}
+YEAR <- 2024  # NOTE: ACS 5-year availability varies; if you get errors, use 2022.
+
+# Helper: pull ACS wide and return county + state as separate fields
+acs_county <- function(vars) {
+  get_acs(
+    geography = "county",
+    variables = unname(vars),
+    year = YEAR,
+    survey = "acs5",
+    output = "wide"
+  ) %>%
+    select(-matches("M$")) %>%
+    transmute(
+      county = str_remove(NAME, ",.*$"),
+      state  = str_remove(NAME, "^.*?,\\s*"),
+      across(ends_with("E"))
+    )
+}
+
+# --- ACS building blocks (kept as small objects, then merged once) ---
+
+acs_demographics <- {
+  demo_vars <- c(
+    TOT_POP="B01001_001",
+    MALE_POP="B01001_002",
+    FEMALE_POP="B01001_026",
+
+    M_U5="B01001_003", M_5_9="B01001_004", M_10_14="B01001_005", M_15_17="B01001_006",
+    M_18_19="B01001_007", M_20="B01001_008", M_21="B01001_009", M_22_24="B01001_010",
+    M_25_29="B01001_011", M_30_34="B01001_012", M_35_39="B01001_013", M_40_44="B01001_014",
+    M_45_49="B01001_015", M_50_54="B01001_016", M_55_59="B01001_017", M_60_61="B01001_018",
+    M_62_64="B01001_019", M_65_66="B01001_020", M_67_69="B01001_021", M_70_74="B01001_022",
+    M_75_79="B01001_023", M_80_84="B01001_024", M_85PLUS="B01001_025",
+
+    F_U5="B01001_027", F_5_9="B01001_028", F_10_14="B01001_029", F_15_17="B01001_030",
+    F_18_19="B01001_031", F_20="B01001_032", F_21="B01001_033", F_22_24="B01001_034",
+    F_25_29="B01001_035", F_30_34="B01001_036", F_35_39="B01001_037", F_40_44="B01001_038",
+    F_45_49="B01001_039", F_50_54="B01001_040", F_55_59="B01001_041", F_60_61="B01001_042",
+    F_62_64="B01001_043", F_65_66="B01001_044", F_67_69="B01001_045", F_70_74="B01001_046",
+    F_75_79="B01001_047", F_80_84="B01001_048", F_85PLUS="B01001_049",
+
+    MEDIAN_AGE="B01002_001",
+
+    WHITE_POP="B02001_002",
+    BLACK_POP="B02001_003",
+    HISPANIC_POP="B03003_003",
+
+    TOTAL_HOUSING_UNITS="B25001_001",
+    OCCUPIED_HOUSING_UNITS="B25002_002",
+    OWNER_OCCUPIED="B25003_002",
+    RENTER_OCCUPIED="B25003_003"
+  )
+
+  raw <- acs_county(demo_vars)
+
+  raw %>%
+    transmute(
+      county, state,
+      total_pop  = B01001_001E,
+      median_age = B01002_001E,
+      male_pct   = B01001_002E / B01001_001E * 100,
+      female_pct = B01001_026E / B01001_001E * 100,
+
+      age_0_17_pct =
+        (B01001_003E + B01001_004E + B01001_005E + B01001_006E +
+         B01001_027E + B01001_028E + B01001_029E + B01001_030E) / B01001_001E * 100,
+
+      age_18_24_pct =
+        (B01001_007E + B01001_008E + B01001_009E + B01001_010E +
+         B01001_031E + B01001_032E + B01001_033E + B01001_034E) / B01001_001E * 100,
+
+      age_25_34_pct =
+        (B01001_011E + B01001_012E + B01001_035E + B01001_036E) / B01001_001E * 100,
+
+      age_35_44_pct =
+        (B01001_013E + B01001_014E + B01001_037E + B01001_038E) / B01001_001E * 100,
+
+      age_45_54_pct =
+        (B01001_015E + B01001_016E + B01001_039E + B01001_040E) / B01001_001E * 100,
+
+      age_55_64_pct =
+        (B01001_017E + B01001_018E + B01001_019E +
+         B01001_041E + B01001_042E + B01001_043E) / B01001_001E * 100,
+
+      age_65_plus_pct =
+        (B01001_020E + B01001_021E + B01001_022E + B01001_023E + B01001_024E + B01001_025E +
+         B01001_044E + B01001_045E + B01001_046E + B01001_047E + B01001_048E + B01001_049E) /
+        B01001_001E * 100,
+
+      white_pct    = B02001_002E / B01001_001E * 100,
+      black_pct    = B02001_003E / B01001_001E * 100,
+      hispanic_pct = B03003_003E / B01001_001E * 100,
+
+      total_housing_units  = B25001_001E,
+      occupied_housing_pct = B25002_002E / B25001_001E * 100,
+      owner_occupied_pct   = B25003_002E / B25001_001E * 100,
+      renter_occupied_pct  = B25003_003E / B25001_001E * 100
+    )
+}
+
+acs_economics <- {
+  income <- acs_county("B19013_001") %>%
+    transmute(county, state, median_income = B19013_001E)
+
+  home_value <- acs_county("B25077_001") %>%
+    transmute(county, state, median_home_value = B25077_001E)
+
+  rent <- acs_county("B25064_001") %>%
+    transmute(county, state, median_rent = B25064_001E)
+
+  year_built <- acs_county("B25035_001") %>%
+    transmute(county, state, median_year_built = B25035_001E)
+
+  list(income, home_value, rent, year_built) %>%
+    reduce(left_join, by = c("county", "state"))
+}
+
+acs_housing_infra <- {
+  units <- acs_county(c(paste0("B25024_00", 1:9), "B25024_010", "B25024_011")) %>%
+    transmute(
+      county, state,
+      one_unit_housing_pct =
+        (B25024_002E + B25024_003E) / B25024_001E * 100,
+      mobile_home_pct =
+        B25024_010E / B25024_001E * 100,
+      multi_unit_housing_pct =
+        (B25024_004E + B25024_005E + B25024_006E +
+         B25024_007E + B25024_008E + B25024_009E) / B25024_001E * 100
+    )
+
+  internet <- acs_county(c("B28002_001", "B28002_013")) %>%
+    transmute(county, state, no_internet_pct = B28002_013E / B28002_001E * 100)
+
+  list(units, internet) %>% reduce(left_join, by = c("county", "state"))
+}
+
+acs_education_labor_health <- {
+  edu_codes <- list(
+    total_25_over = "B15003_001",
+    less_than_hs  = paste0("B15003_", sprintf("%03d", 2:16)),
+    hs_grad       = "B15003_017",
+    some_college  = paste0("B15003_", sprintf("%03d", 18:21)),
+    college_grad  = paste0("B15003_", sprintf("%03d", 22:25))
+  )
+
+  edu_raw <- acs_county(unlist(edu_codes))
+
+  education <- edu_raw %>%
+    mutate(
+      total_less_than_hs = rowSums(across(all_of(paste0(edu_codes$less_than_hs, "E"))), na.rm = TRUE),
+      total_some_college = rowSums(across(all_of(paste0(edu_codes$some_college, "E"))), na.rm = TRUE),
+      total_college_grad = rowSums(across(all_of(paste0(edu_codes$college_grad, "E"))), na.rm = TRUE),
+      less_than_hs_pct = total_less_than_hs / B15003_001E * 100,
+      hs_grad_pct      = B15003_017E / B15003_001E * 100,
+      some_college_pct = total_some_college / B15003_001E * 100,
+      college_grad_pct = total_college_grad / B15003_001E * 100
+    ) %>%
+    select(county, state, less_than_hs_pct, hs_grad_pct, some_college_pct, college_grad_pct)
+
+  employment <- acs_county(paste0("B23025_00", 1:7)) %>%
+    transmute(
+      county, state,
+      labor_force_pct  = B23025_002E / B23025_001E * 100,
+      unemployed_pct   = B23025_005E / B23025_003E * 100,
+      armed_forces_pct = B23025_006E / B23025_002E * 100
+    )
+
+  noins_vars <- c(
+    "B27001_005","B27001_008","B27001_011","B27001_014","B27001_017",
+    "B27001_020","B27001_023","B27001_026","B27001_029",
+    "B27001_033","B27001_036","B27001_039","B27001_042","B27001_045",
+    "B27001_048","B27001_051","B27001_054","B27001_057"
+  )
+
+  health <- acs_county(c("B27001_001", noins_vars)) %>%
+    transmute(
+      county, state,
+      uninsured_pct = rowSums(across(all_of(paste0(noins_vars, "E"))), na.rm = TRUE) / B27001_001E * 100
+    )
+
+  list(education, employment, health) %>% reduce(left_join, by = c("county", "state"))
+}
+
+# --- FINAL ACS table: one row per (county,state) ---
+# What it is: engineered ACS county features for modeling
+county_acs <- list(
+  acs_demographics,
+  acs_economics,
+  acs_housing_infra,
+  acs_education_labor_health
+) %>%
+  reduce(left_join, by = c("county", "state")) %>%
+  mutate(across(ends_with("_pct"), ~ round(.x, 1)))
+```
+```{r}
+# What it is: precomputed climate features by county
+county_climate <- read.csv("county_climate_features_clean.csv") %>%
+  clean_names() %>%
+  transmute(
+    county = str_trim(name),
+    state  = str_trim(state),
+    across(everything(), ~ .)
+  )
+
+county_climate <- county_climate %>%
+  normalize_county_state("county", "state")
+```
+
+
+
+```{r}
+# What it is: all county-level features merged into one table
+county_features <- county_acs %>%
+  left_join(county_climate, by = c("county", "state"))
+
+cat("County feature rows:", nrow(county_features), "\n")
+```
+
+
+```{r}
+# Keep one row per utility from meters (prevents accidental many-to-many explosions)
+# What it is: one record per utility_number with meter attributes
+meters_one <- meters_raw %>%
+  distinct(utility_number, .keep_all = TRUE)
+
+# What it is: base utility×county rows + meter info + customer flags
+utility_county <- territory_clean %>%
+  right_join(meters_one, by = "utility_number", relationship = "many-to-one") %>%
+  select(-ends_with(".y")) %>%
+  rename_with(~ str_remove(.x, "\\.x$"))
+
+# Join county features
+# What it is: utility×county with ACS+climate+NRI features added
+utility_county_features <- utility_county %>%
+  left_join(county_features, by = c("county", "state"), relationship = "many-to-one")
+
+cat("County feature match rate:",
+    1 - mean(is.na(utility_county_features$total_pop)),
+    "\n")
+```
+
+```{r}
+# What it is: one row per utility with averaged county features (across its counties)
+utility_one <- utility_county_features %>%
+  group_by(
+    utility_number, utility_name, state, ownership, emerald_customer_y_n,
+    emerald_customer_id, emerald_customer_name,
+    residential, commercial, industrial, transportation, total_meters,
+    x2019_pickups, x2020_pickups, x2021_pickups, x2022_pickups,
+    x2023_pickups, x2024_pickups, x2025_pickups, ba_code
+  ) %>%
+  summarise(
+    n_counties = n(),
+    across(where(is.numeric),
+           ~ mean(.x, na.rm = TRUE)),
+    .groups = "drop"
+  )
+
+cat("Utilities:", nrow(utility_one), "\n")
+```
+
+```{r}
+# What it is: utility rows repeated for each matching Emerald pickup row (monthly/timeseries)
+utility_monthly <- utility_one %>%
+  left_join(pickups_raw, by = c("emerald_customer_id" = "customer_id"), relationship = "many-to-many") %>%
+  select(-state.y) %>%
+  rename(state = state.x)
+```
+
+
+
