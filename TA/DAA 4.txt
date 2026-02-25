@@ -1,0 +1,11 @@
+This would be an appropriate cropped screenshot
+
+
+Data Table supposed to be part of bar chart, see example 
+
+
+Missing numerical support
+
+Missing data table
+
+Screenshot too small
