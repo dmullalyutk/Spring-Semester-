@@ -1,0 +1,769 @@
+---
+title: "Emerald Pickups — County-Level Demand Index"
+author: "David"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+# ============================================================
+# PHASE 0: LIBRARIES
+# ============================================================
+
+```{r libraries}
+library(readxl)
+library(readr)
+library(dplyr)
+library(tidyr)
+library(lubridate)
+library(janitor)
+library(stringr)
+library(purrr)
+library(tidycensus)
+library(ggplot2)
+library(scales)
+```
+
+# ============================================================
+# PHASE 1: RAW DATA INGESTION (unchanged from your pipeline)
+# ============================================================
+
+```{r ingest}
+# --- A) Emerald pickups ---
+pickups_raw <- read_excel(
+  "Meters Data 2024.xlsx",
+  sheet = "Emerald Pickups",
+  range = "A1:P50074"
+) %>%
+  clean_names() %>%
+  mutate(customer_id = trimws(as.character(customer_id)))
+
+# --- B) Meter data (utility-level) ---
+meters_raw <- read_excel(
+  "Meters Data 2024.xlsx",
+  sheet = "Combined Meter Data"
+) %>%
+  clean_names() %>%
+  mutate(utility_number = as.character(utility_number))
+
+# --- C) Service territory (utility <-> county) ---
+territory_raw <- read_excel("Service_Territory_2024.xlsx") %>%
+  clean_names() %>%
+  mutate(utility_number = as.character(utility_number))
+```
+
+# ============================================================
+# PHASE 2: HELPERS & TERRITORY CLEANING (unchanged)
+# ============================================================
+
+```{r helpers}
+normalize_county_state <- function(df, county_col = "county", state_col = "state") {
+  df %>%
+    mutate(
+      !!county_col := str_trim(.data[[county_col]]),
+      !!county_col := ifelse(str_detect(.data[[county_col]], "County$"),
+                             .data[[county_col]],
+                             paste0(.data[[county_col]], " County")),
+      !!state_col := str_trim(.data[[state_col]]),
+      !!state_col := ifelse(nchar(.data[[state_col]]) == 2,
+                            state.name[match(.data[[state_col]], state.abb)],
+                            .data[[state_col]])
+    )
+}
+
+territory_clean <- territory_raw %>%
+  normalize_county_state("county", "state")
+```
+
+# ============================================================
+# PHASE 3: ACS COUNTY FEATURES (unchanged)
+# ============================================================
+
+```{r acs-setup}
+YEAR <- 2024  # Use 2022 if 2024 5-year not yet available
+
+census_api_key("e98bb364eb4ff37798f2b629fd079f28731179b4", install = FALSE)
+
+acs_county <- function(vars) {
+  get_acs(
+    geography = "county",
+    variables = unname(vars),
+    year = YEAR,
+    survey = "acs5",
+    output = "wide"
+  ) %>%
+    select(-matches("M$")) %>%
+    transmute(
+      county = str_remove(NAME, ",.*$"),
+      state  = str_remove(NAME, "^.*?,\\s*"),
+      across(ends_with("E"))
+    )
+}
+```
+
+```{r acs-demographics}
+acs_demographics <- {
+  demo_vars <- c(
+    TOT_POP="B01001_001",
+    MALE_POP="B01001_002",
+    FEMALE_POP="B01001_026",
+    M_U5="B01001_003", M_5_9="B01001_004", M_10_14="B01001_005", M_15_17="B01001_006",
+    M_18_19="B01001_007", M_20="B01001_008", M_21="B01001_009", M_22_24="B01001_010",
+    M_25_29="B01001_011", M_30_34="B01001_012", M_35_39="B01001_013", M_40_44="B01001_014",
+    M_45_49="B01001_015", M_50_54="B01001_016", M_55_59="B01001_017", M_60_61="B01001_018",
+    M_62_64="B01001_019", M_65_66="B01001_020", M_67_69="B01001_021", M_70_74="B01001_022",
+    M_75_79="B01001_023", M_80_84="B01001_024", M_85PLUS="B01001_025",
+    F_U5="B01001_027", F_5_9="B01001_028", F_10_14="B01001_029", F_15_17="B01001_030",
+    F_18_19="B01001_031", F_20="B01001_032", F_21="B01001_033", F_22_24="B01001_034",
+    F_25_29="B01001_035", F_30_34="B01001_036", F_35_39="B01001_037", F_40_44="B01001_038",
+    F_45_49="B01001_039", F_50_54="B01001_040", F_55_59="B01001_041", F_60_61="B01001_042",
+    F_62_64="B01001_043", F_65_66="B01001_044", F_67_69="B01001_045", F_70_74="B01001_046",
+    F_75_79="B01001_047", F_80_84="B01001_048", F_85PLUS="B01001_049",
+    MEDIAN_AGE="B01002_001",
+    WHITE_POP="B02001_002",
+    BLACK_POP="B02001_003",
+    HISPANIC_POP="B03003_003",
+    TOTAL_HOUSING_UNITS="B25001_001",
+    OCCUPIED_HOUSING_UNITS="B25002_002",
+    OWNER_OCCUPIED="B25003_002",
+    RENTER_OCCUPIED="B25003_003"
+  )
+
+  raw <- acs_county(demo_vars)
+
+  raw %>%
+    transmute(
+      county, state,
+      total_pop  = B01001_001E,
+      median_age = B01002_001E,
+      male_pct   = B01001_002E / B01001_001E * 100,
+      female_pct = B01001_026E / B01001_001E * 100,
+      age_0_17_pct =
+        (B01001_003E + B01001_004E + B01001_005E + B01001_006E +
+         B01001_027E + B01001_028E + B01001_029E + B01001_030E) / B01001_001E * 100,
+      age_18_24_pct =
+        (B01001_007E + B01001_008E + B01001_009E + B01001_010E +
+         B01001_031E + B01001_032E + B01001_033E + B01001_034E) / B01001_001E * 100,
+      age_25_34_pct =
+        (B01001_011E + B01001_012E + B01001_035E + B01001_036E) / B01001_001E * 100,
+      age_35_44_pct =
+        (B01001_013E + B01001_014E + B01001_037E + B01001_038E) / B01001_001E * 100,
+      age_45_54_pct =
+        (B01001_015E + B01001_016E + B01001_039E + B01001_040E) / B01001_001E * 100,
+      age_55_64_pct =
+        (B01001_017E + B01001_018E + B01001_019E +
+         B01001_041E + B01001_042E + B01001_043E) / B01001_001E * 100,
+      age_65_plus_pct =
+        (B01001_020E + B01001_021E + B01001_022E + B01001_023E + B01001_024E + B01001_025E +
+         B01001_044E + B01001_045E + B01001_046E + B01001_047E + B01001_048E + B01001_049E) /
+        B01001_001E * 100,
+      white_pct    = B02001_002E / B01001_001E * 100,
+      black_pct    = B02001_003E / B01001_001E * 100,
+      hispanic_pct = B03003_003E / B01001_001E * 100,
+      total_housing_units  = B25001_001E,
+      occupied_housing_pct = B25002_002E / B25001_001E * 100,
+      owner_occupied_pct   = B25003_002E / B25001_001E * 100,
+      renter_occupied_pct  = B25003_003E / B25001_001E * 100
+    )
+}
+```
+
+```{r acs-economics}
+acs_economics <- {
+  income <- acs_county("B19013_001") %>%
+    transmute(county, state, median_income = B19013_001E)
+  home_value <- acs_county("B25077_001") %>%
+    transmute(county, state, median_home_value = B25077_001E)
+  rent <- acs_county("B25064_001") %>%
+    transmute(county, state, median_rent = B25064_001E)
+  year_built <- acs_county("B25035_001") %>%
+    transmute(county, state, median_year_built = B25035_001E)
+
+  list(income, home_value, rent, year_built) %>%
+    reduce(left_join, by = c("county", "state"))
+}
+```
+
+```{r acs-housing}
+acs_housing_infra <- {
+  units <- acs_county(c(paste0("B25024_00", 1:9), "B25024_010", "B25024_011")) %>%
+    transmute(
+      county, state,
+      one_unit_housing_pct =
+        (B25024_002E + B25024_003E) / B25024_001E * 100,
+      mobile_home_pct =
+        B25024_010E / B25024_001E * 100,
+      multi_unit_housing_pct =
+        (B25024_004E + B25024_005E + B25024_006E +
+         B25024_007E + B25024_008E + B25024_009E) / B25024_001E * 100
+    )
+  internet <- acs_county(c("B28002_001", "B28002_013")) %>%
+    transmute(county, state, no_internet_pct = B28002_013E / B28002_001E * 100)
+
+  list(units, internet) %>% reduce(left_join, by = c("county", "state"))
+}
+```
+
+```{r acs-edu-labor-health}
+acs_education_labor_health <- {
+  edu_codes <- list(
+    total_25_over = "B15003_001",
+    less_than_hs  = paste0("B15003_", sprintf("%03d", 2:16)),
+    hs_grad       = "B15003_017",
+    some_college  = paste0("B15003_", sprintf("%03d", 18:21)),
+    college_grad  = paste0("B15003_", sprintf("%03d", 22:25))
+  )
+  edu_raw <- acs_county(unlist(edu_codes))
+  education <- edu_raw %>%
+    mutate(
+      total_less_than_hs = rowSums(across(all_of(paste0(edu_codes$less_than_hs, "E"))), na.rm = TRUE),
+      total_some_college = rowSums(across(all_of(paste0(edu_codes$some_college, "E"))), na.rm = TRUE),
+      total_college_grad = rowSums(across(all_of(paste0(edu_codes$college_grad, "E"))), na.rm = TRUE),
+      less_than_hs_pct = total_less_than_hs / B15003_001E * 100,
+      hs_grad_pct      = B15003_017E / B15003_001E * 100,
+      some_college_pct = total_some_college / B15003_001E * 100,
+      college_grad_pct = total_college_grad / B15003_001E * 100
+    ) %>%
+    select(county, state, less_than_hs_pct, hs_grad_pct, some_college_pct, college_grad_pct)
+
+  employment <- acs_county(paste0("B23025_00", 1:7)) %>%
+    transmute(
+      county, state,
+      labor_force_pct  = B23025_002E / B23025_001E * 100,
+      unemployed_pct   = B23025_005E / B23025_003E * 100,
+      armed_forces_pct = B23025_006E / B23025_002E * 100
+    )
+
+  noins_vars <- c(
+    "B27001_005","B27001_008","B27001_011","B27001_014","B27001_017",
+    "B27001_020","B27001_023","B27001_026","B27001_029",
+    "B27001_033","B27001_036","B27001_039","B27001_042","B27001_045",
+    "B27001_048","B27001_051","B27001_054","B27001_057"
+  )
+  health <- acs_county(c("B27001_001", noins_vars)) %>%
+    transmute(
+      county, state,
+      uninsured_pct = rowSums(across(all_of(paste0(noins_vars, "E"))), na.rm = TRUE) / B27001_001E * 100
+    )
+
+  list(education, employment, health) %>% reduce(left_join, by = c("county", "state"))
+}
+```
+
+```{r county-features-merge}
+county_acs <- list(
+  acs_demographics,
+  acs_economics,
+  acs_housing_infra,
+  acs_education_labor_health
+) %>%
+  reduce(left_join, by = c("county", "state")) %>%
+  mutate(across(ends_with("_pct"), ~ round(.x, 1)))
+
+# Climate
+county_climate <- read.csv("county_climate_features_clean.csv") %>%
+  clean_names() %>%
+  transmute(
+    county = str_trim(name),
+    state  = str_trim(state),
+    across(everything(), ~ .)
+  ) %>%
+  normalize_county_state("county", "state")
+
+# All county features
+county_features <- county_acs %>%
+  left_join(county_climate, by = c("county", "state"))
+
+cat("County feature rows:", nrow(county_features), "\n")
+```
+
+# ============================================================
+# PHASE 4: UTILITY ASSEMBLY (unchanged)
+# ============================================================
+
+```{r utility-assembly}
+meters_one <- meters_raw %>%
+  distinct(utility_number, .keep_all = TRUE)
+
+utility_county <- territory_clean %>%
+  right_join(meters_one, by = "utility_number", relationship = "many-to-one") %>%
+  select(-ends_with(".y")) %>%
+  rename_with(~ str_remove(.x, "\\.x$"))
+
+utility_county_features <- utility_county %>%
+  left_join(county_features, by = c("county", "state"), relationship = "many-to-one")
+
+# utility_one: 1 row per utility, county features averaged
+utility_one <- utility_county_features %>%
+  group_by(
+    utility_number, utility_name, state, ownership, emerald_customer_y_n,
+    emerald_customer_id, emerald_customer_name,
+    residential, commercial, industrial, transportation, total_meters,
+    x2019_pickups, x2020_pickups, x2021_pickups, x2022_pickups,
+    x2023_pickups, x2024_pickups, x2025_pickups, ba_code
+  ) %>%
+  summarise(
+    n_counties = n(),
+    across(where(is.numeric), ~ mean(.x, na.rm = TRUE)),
+    .groups = "drop"
+  )
+
+cat("Utilities:", nrow(utility_one), "\n")
+```
+
+# ============================================================
+# PHASE 5: PROPORTIONAL METER ALLOCATION TO COUNTIES
+# ============================================================
+
+This is the new piece. We allocate each utility's meters to its counties
+proportionally based on housing units (from ACS). This avoids double-counting
+and gives us county-level meter estimates.
+
+```{r proportional-allocation}
+# ============================================================
+# PHASE 5: PROPORTIONAL METER + PICKUP ALLOCATION TO COUNTIES
+# ============================================================
+
+county_meter_allocation <- utility_county_features %>%
+  filter(!is.na(total_housing_units)) %>%
+  group_by(utility_number) %>%
+  mutate(
+    utility_total_housing = sum(total_housing_units, na.rm = TRUE),
+    county_share = ifelse(utility_total_housing > 0,
+                          total_housing_units / utility_total_housing,
+                          1 / n())
+  ) %>%
+  ungroup() %>%
+  mutate(
+    allocated_residential    = residential * county_share,
+    allocated_commercial     = commercial * county_share,
+    allocated_industrial     = industrial * county_share,
+    allocated_transportation = transportation * county_share,
+    allocated_total_meters   = total_meters * county_share,
+    # Allocate pickups proportionally too
+    allocated_pickups_2024   = coalesce(x2024_pickups, 0) * county_share
+  )
+
+# Sanity check
+check <- county_meter_allocation %>%
+  group_by(utility_number) %>%
+  summarise(
+    original = first(total_meters),
+    allocated = sum(allocated_total_meters),
+    .groups = "drop"
+  ) %>%
+  mutate(diff = abs(original - allocated))
+
+cat("Max allocation error:", max(check$diff, na.rm = TRUE), "\n")
+cat("Mean allocation error:", mean(check$diff, na.rm = TRUE), "\n")
+```
+
+```{r county-meter-totals}
+# Aggregate to county level: sum allocated meters across all utilities serving each county
+# Aggregate to county level
+county_meters <- county_meter_allocation %>%
+  group_by(county, state) %>%
+  summarise(
+    n_utilities            = n_distinct(utility_number),
+    est_residential_meters = sum(allocated_residential, na.rm = TRUE),
+    est_commercial_meters  = sum(allocated_commercial, na.rm = TRUE),
+    est_industrial_meters  = sum(allocated_industrial, na.rm = TRUE),
+    est_transport_meters   = sum(allocated_transportation, na.rm = TRUE),
+    est_total_meters       = sum(allocated_total_meters, na.rm = TRUE),
+    # Ownership mix
+    n_iou   = sum(ownership == "Investor Owned", na.rm = TRUE),
+    n_coop  = sum(ownership == "Cooperative", na.rm = TRUE),
+    n_muni  = sum(str_detect(ownership, "Municipal|Political Subdivision"), na.rm = TRUE),
+    # Emerald presence — based on allocated pickup volume, not binary flag
+    est_emerald_pickups = sum(allocated_pickups_2024, na.rm = TRUE),
+    has_emerald         = sum(allocated_pickups_2024, na.rm = TRUE) > 10,  # meaningful activity threshold
+    n_emerald_utils     = n_distinct(utility_number[coalesce(x2024_pickups, 0) > 0]),
+    .groups = "drop"
+  )
+
+cat("Counties with meter data:", nrow(county_meters), "\n")
+cat("Counties with Emerald activity (>10 allocated pickups):", sum(county_meters$has_emerald), "\n")
+
+```
+
+# ============================================================
+# PHASE 6: COUNTY DEMAND INDEX — ASSEMBLE ALL COMPONENTS
+# ============================================================
+
+```{r county-index-base}
+# Join county_features (ACS + climate) with county_meters (allocated meters)
+# county_features has ALL ~3,222 counties
+# county_meters only has counties mapped to at least one utility in the territory file
+
+county_index_data <- county_features %>%
+  left_join(county_meters, by = c("county", "state"))
+
+cat("Total counties:", nrow(county_index_data), "\n")
+cat("Counties with meter data:", sum(!is.na(county_index_data$est_total_meters)), "\n")
+cat("Counties without meter data:", sum(is.na(county_index_data$est_total_meters)), "\n")
+```
+
+```{r index-components}
+
+# ---------------------------------------------------------------
+# Min-max scaler: maps to [0, 1], handles NAs, optional inversion
+# ---------------------------------------------------------------
+minmax <- function(x, invert = FALSE) {
+  rng <- range(x, na.rm = TRUE)
+  if (rng[1] == rng[2]) return(rep(0.5, length(x)))
+  scaled <- (x - rng[1]) / (rng[2] - rng[1])
+  if (invert) scaled <- 1 - scaled
+  return(scaled)
+}
+
+county_index <- county_index_data %>%
+  mutate(
+    # ----------------------------------------------------------
+    # 1. MARKET SIZE (weight: 0.30)
+    #    Log-transformed to compress size gap
+    # ----------------------------------------------------------
+    ms_meters  = minmax(log1p(coalesce(est_total_meters, 0))),
+    ms_housing = minmax(log1p(coalesce(total_housing_units, 0))),
+    ms_nonres_share = minmax(
+      coalesce(
+        (est_commercial_meters + est_industrial_meters) /
+          pmax(est_total_meters, 1),
+        0
+      )
+    ),
+    idx_market_size = ifelse(
+      !is.na(est_total_meters),
+      0.5 * ms_meters + 0.3 * ms_housing + 0.2 * ms_nonres_share,
+      ms_housing
+    ),
+
+    # ----------------------------------------------------------
+    # 2. INFRASTRUCTURE AGE (weight: 0.05)
+    #    Kept but downweighted — weak signal
+    # ----------------------------------------------------------
+    idx_infra_age = minmax(median_year_built, invert = TRUE),
+
+    # ----------------------------------------------------------
+    # 3. CLIMATE STRESS (weight: 0.05)
+    #    Kept but downweighted — near-zero signal
+    # ----------------------------------------------------------
+    cs_hdd_cdd = minmax(
+      coalesce(annual_heating_degree_days, 0) +
+        coalesce(annual_cooling_degree_days, 0)
+    ),
+    cs_temp_change = minmax(abs(coalesce(temperature_change_rate, 0))),
+    cs_extremity   = minmax(coalesce(climate_extremity, 0)),
+    idx_climate_stress = 0.4 * cs_hdd_cdd + 0.3 * cs_temp_change + 0.3 * cs_extremity,
+
+    # ----------------------------------------------------------
+    # 4. ECONOMIC CAPACITY (weight: 0.15)
+    # ----------------------------------------------------------
+    ec_income = minmax(coalesce(median_income, 0)),
+    ec_home   = minmax(coalesce(median_home_value, 0)),
+    idx_economic_capacity = 0.6 * ec_income + 0.4 * ec_home,
+
+    # ----------------------------------------------------------
+    # 5. OPERATIONAL COMPLEXITY (weight: 0.15)
+    #    INVERTED — less fragmentation = higher score
+    #    Emerald works with big consolidated utilities
+    # ----------------------------------------------------------
+    oc_n_utils = minmax(coalesce(n_utilities, 0)),
+    oc_meter_diversity = {
+      total <- pmax(coalesce(est_total_meters, 1), 1)
+      p_res  <- coalesce(est_residential_meters, 0) / total
+      p_com  <- coalesce(est_commercial_meters, 0) / total
+      p_ind  <- coalesce(est_industrial_meters, 0) / total
+      p_trn  <- coalesce(est_transport_meters, 0) / total
+      entropy <- -1 * (
+        ifelse(p_res > 0, p_res * log(p_res), 0) +
+        ifelse(p_com > 0, p_com * log(p_com), 0) +
+        ifelse(p_ind > 0, p_ind * log(p_ind), 0) +
+        ifelse(p_trn > 0, p_trn * log(p_trn), 0)
+      ) / log(4)
+      minmax(coalesce(entropy, 0))
+    },
+    # Inverted: fewer utilities + less diversity = higher score
+    idx_operational_complexity = 1 - (0.5 * oc_n_utils + 0.5 * oc_meter_diversity),
+
+    # ----------------------------------------------------------
+    # 6. GROWTH POTENTIAL (weight: 0.30)
+    #    Log-transformed population
+    #    TODO: replace with building_permits + pop_growth_rate
+    # ----------------------------------------------------------
+    idx_growth_potential = minmax(log1p(coalesce(total_pop, 0)))
+  )
+```
+
+
+
+#Three changes from before: log transforms on raw count variables (meters, housing, population), operational complexity inverted, and weights shifted to match the empirical signal. Re-run validation after this and let's see if the Spearman moves.
+
+
+```{r composite-index}
+# ----------------------------------------------------------
+# COMPOSITE DEMAND INDEX — empirically calibrated weights
+# ----------------------------------------------------------
+
+W_MARKET    <- 0.30
+W_GROWTH    <- 0.30
+W_ECONOMIC  <- 0.15
+W_OPER      <- 0.15
+W_INFRA     <- 0.05
+W_CLIMATE   <- 0.05
+
+county_index <- county_index %>%
+  mutate(
+    demand_index =
+      W_MARKET   * idx_market_size +
+      W_GROWTH   * idx_growth_potential +
+      W_ECONOMIC * idx_economic_capacity +
+      W_OPER     * idx_operational_complexity +
+      W_INFRA    * idx_infra_age +
+      W_CLIMATE  * idx_climate_stress,
+
+    demand_index_100 = minmax(demand_index) * 100,
+    demand_tier = ntile(demand_index, 5)
+  )
+
+cat("\n=== DEMAND INDEX SUMMARY ===\n")
+cat("Counties scored:", nrow(county_index), "\n\n")
+
+county_index %>%
+  group_by(demand_tier) %>%
+  summarise(
+    n_counties = n(),
+    avg_index  = round(mean(demand_index_100), 1),
+    min_index  = round(min(demand_index_100), 1),
+    max_index  = round(max(demand_index_100), 1),
+    avg_meters = round(mean(est_total_meters, na.rm = TRUE), 0),
+    pct_emerald = round(mean(has_emerald, na.rm = TRUE) * 100, 1),
+    .groups = "drop"
+  ) %>%
+  print()
+```
+
+```{r top-counties}
+# Top 30 counties by demand index (for quick inspection)
+cat("\n=== TOP 30 COUNTIES BY DEMAND INDEX ===\n")
+county_index %>%
+  arrange(desc(demand_index_100)) %>%
+  select(county, state, demand_index_100, demand_tier,
+         est_total_meters, total_housing_units, total_pop,
+         has_emerald, n_utilities) %>%
+  head(30) %>%
+  print(n = 30)
+```
+
+# ============================================================
+# PHASE 7: VALIDATION — UTILITY-LEVEL PICKUP CORRELATION
+# ============================================================
+
+Pickups are utility-level, so we validate by mapping each utility's demand
+score as the weighted average of its county-level index scores, then
+correlating with actual pickup volumes.
+
+```{r validation-utility-scores}
+# For each utility, compute weighted average demand index across its counties
+# Weight by housing units (same logic as meter allocation)
+
+utility_demand_scores <- county_meter_allocation %>%
+  # Join the county-level index scores
+  left_join(
+    county_index %>% select(county, state, demand_index, demand_index_100,
+                            idx_market_size, idx_infra_age, idx_climate_stress,
+                            idx_economic_capacity, idx_operational_complexity,
+                            idx_growth_potential),
+    by = c("county", "state")
+  ) %>%
+  filter(!is.na(demand_index)) %>%
+  # Weighted average by county_share (housing-based weight we already computed)
+  group_by(utility_number, utility_name, ownership,
+           emerald_customer_y_n, emerald_customer_id,
+           residential, commercial, industrial, transportation, total_meters,
+           x2024_pickups) %>%
+  summarise(
+    n_counties = n(),
+    wtd_demand_index = weighted.mean(demand_index, county_share, na.rm = TRUE),
+    wtd_market_size  = weighted.mean(idx_market_size, county_share, na.rm = TRUE),
+    wtd_infra_age    = weighted.mean(idx_infra_age, county_share, na.rm = TRUE),
+    wtd_climate      = weighted.mean(idx_climate_stress, county_share, na.rm = TRUE),
+    wtd_economic     = weighted.mean(idx_economic_capacity, county_share, na.rm = TRUE),
+    wtd_operational  = weighted.mean(idx_operational_complexity, county_share, na.rm = TRUE),
+    wtd_growth       = weighted.mean(idx_growth_potential, county_share, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+cat("Utilities with demand scores:", nrow(utility_demand_scores), "\n")
+```
+
+```{r validation-pickup-correlation}
+# Filter to Emerald customers with 2024 pickups
+emerald_validation <- utility_demand_scores %>%
+  filter(!is.na(x2024_pickups), x2024_pickups > 0)
+
+cat("Emerald utilities for validation:", nrow(emerald_validation), "\n\n")
+
+# --- Primary: Spearman rank correlation ---
+cat("=== OVERALL CORRELATION: demand index vs log(pickups) ===\n")
+cor_spearman <- cor(emerald_validation$wtd_demand_index,
+                    log1p(emerald_validation$x2024_pickups),
+                    method = "spearman", use = "complete.obs")
+cor_pearson <- cor(emerald_validation$wtd_demand_index,
+                   log1p(emerald_validation$x2024_pickups),
+                   method = "pearson", use = "complete.obs")
+cat("Spearman rho:", round(cor_spearman, 3), "\n")
+cat("Pearson r:   ", round(cor_pearson, 3), "\n\n")
+
+# --- Component-level correlations (which sub-index matters most?) ---
+cat("=== COMPONENT CORRELATIONS (Spearman) ===\n")
+components <- c("wtd_market_size", "wtd_infra_age", "wtd_climate",
+                "wtd_economic", "wtd_operational", "wtd_growth")
+
+component_cors <- sapply(components, function(col) {
+  cor(emerald_validation[[col]],
+      log1p(emerald_validation$x2024_pickups),
+      method = "spearman", use = "complete.obs")
+})
+
+data.frame(
+  component = components,
+  spearman_rho = round(component_cors, 3)
+) %>%
+  arrange(desc(abs(spearman_rho))) %>%
+  print()
+```
+
+```{r validation-group-comparison}
+# --- Secondary: Known-group comparison ---
+# Do Emerald-served counties score higher than non-served?
+cat("\n=== KNOWN-GROUP COMPARISON ===\n")
+
+group_test_data <- county_index %>%
+  filter(!is.na(demand_index)) %>%
+  mutate(emerald_served = coalesce(has_emerald, FALSE))
+
+cat("Emerald-served counties:", sum(group_test_data$emerald_served), "\n")
+cat("Non-served counties:   ", sum(!group_test_data$emerald_served), "\n\n")
+
+group_test_data %>%
+  group_by(emerald_served) %>%
+  summarise(
+    n = n(),
+    mean_index = round(mean(demand_index_100), 1),
+    median_index = round(median(demand_index_100), 1),
+    .groups = "drop"
+  ) %>%
+  print()
+
+# Mann-Whitney U test
+wt <- wilcox.test(
+  demand_index ~ emerald_served,
+  data = group_test_data,
+  alternative = "less"  # expect non-served < served
+)
+cat("\nMann-Whitney p-value:", format.pval(wt$p.value, digits = 4), "\n")
+cat("(H_alt: non-served counties have lower index than served)\n")
+```
+
+```{r validation-scatter}
+# Scatter: demand index vs actual pickups
+ggplot(emerald_validation,
+       aes(x = wtd_demand_index, y = log1p(x2024_pickups))) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm", se = TRUE, color = "steelblue") +
+  labs(
+    title = "Demand Index vs Actual Pickups (2024)",
+    subtitle = paste0("Spearman ρ = ", round(cor_spearman, 3),
+                      ", Pearson r = ", round(cor_pearson, 3)),
+    x = "Weighted Demand Index (utility avg across counties)",
+    y = "log(1 + annual pickups)"
+  ) +
+  theme_minimal()
+```
+
+# ============================================================
+# PHASE 8: EXPANSION OPPORTUNITIES
+# ============================================================
+
+High-index counties with NO current Emerald presence.
+
+```{r expansion-targets}
+expansion_opportunities <- county_index %>%
+  filter(
+    demand_tier >= 4,                              # top 40% of counties
+    coalesce(has_emerald, FALSE) == FALSE           # no Emerald presence
+  ) %>%
+  arrange(desc(demand_index_100)) %>%
+  select(
+    county, state, demand_index_100, demand_tier,
+    est_total_meters, total_housing_units, total_pop,
+    median_income, median_year_built,
+    n_utilities, n_iou, n_coop, n_muni,
+    idx_market_size, idx_infra_age, idx_climate_stress,
+    idx_economic_capacity, idx_operational_complexity
+  )
+
+cat("=== EXPANSION OPPORTUNITIES (Tier 4-5, no Emerald) ===\n")
+cat("Total candidates:", nrow(expansion_opportunities), "\n")
+cat("With IOUs present:", sum(expansion_opportunities$n_iou > 0, na.rm = TRUE), "\n\n")
+
+cat("Top 30 expansion targets:\n")
+expansion_opportunities %>%
+  head(30) %>%
+  print(n = 30)
+```
+
+```{r expansion-iou-targets}
+# Tier 2: Which IOUs are the best entry points?
+# Aggregate expansion counties back to the utility level
+
+# Start from utility_county_features, filter to expansion counties
+iou_targets <- utility_county_features %>%
+  semi_join(
+    expansion_opportunities,
+    by = c("county", "state")
+  ) %>%
+  filter(str_detect(ownership, "Investor Owned")) %>%
+  group_by(utility_number, utility_name, state, ownership) %>%
+  summarise(
+    n_expansion_counties = n(),
+    total_meters_in_expansion = sum(total_meters, na.rm = TRUE) / n(),
+    # Note: dividing by n() undoes the duplication from utility x county
+    .groups = "drop"
+  ) %>%
+  arrange(desc(n_expansion_counties))
+
+cat("\n=== TOP IOU TARGETS (by # expansion counties served) ===\n")
+iou_targets %>%
+  head(20) %>%
+  print(n = 20)
+```
+
+# ============================================================
+# NOTES & NEXT STEPS
+# ============================================================
+
+**Proportional allocation approach:**
+- Meters allocated to counties based on housing unit share
+- Counties with no utility mapping get index based on ACS/climate only
+- Validation runs at utility level (weighted avg of county scores vs pickups)
+
+**Weight calibration:**
+- Run component correlations above, then adjust W_ constants
+- Components with higher Spearman rho against pickups deserve more weight
+- Re-run composite and check if overall correlation improves
+
+**Data still to add (will improve the index):**
+- [ ] Census Building Permits → better growth_potential component
+- [ ] County Business Patterns → establishment counts for economic capacity
+- [ ] NRI risk data → join to climate stress component
+- [ ] EIA state electricity prices → add to economic capacity
+- [ ] Population growth rate → growth potential
+
+**After calibration:**
+- Create choropleth map of demand_index_100
+- Overlay Emerald footprint
+- Build the 3-tier expansion playbook

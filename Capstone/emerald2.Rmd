@@ -19,6 +19,7 @@ library(janitor)
 library(stringr)
 library(purrr)
 library(tidycensus)
+
 ```
 
 
@@ -344,4 +345,217 @@ utility_monthly <- utility_one %>%
 ```
 
 
+
+
+```{r}
+library(tidyr)
+
+utility_one %>%
+  filter(!is.na(x2024_pickups), x2024_pickups > 0) %>%
+  summarise(across(everything(), ~ sum(is.na(.)))) %>%
+  pivot_longer(everything()) %>%
+  filter(value > 0) %>%
+  arrange(desc(value))
+```
+
+
+
+```{r}
+# Only 16 lost - check which ones
+utility_one %>%
+  filter(!is.na(x2024_pickups), x2024_pickups > 0, is.na(total_pop)) %>%
+  select(utility_number, utility_name, state, n_counties)
+```
+
+
+
+```{r}
+# Stack all pickup years into long format
+utility_stacked <- utility_one %>%
+  select(-x2025_pickups) %>%  # drop partial year
+  pivot_longer(
+    cols = c(x2019_pickups, x2020_pickups, x2021_pickups, 
+             x2022_pickups, x2023_pickups, x2024_pickups),
+    names_to = "year",
+    values_to = "annual_pickups"
+  ) %>%
+  mutate(year = as.integer(gsub("x|_pickups", "", year))) %>%
+  filter(!is.na(annual_pickups), annual_pickups > 0)
+
+cat("Total rows:", nrow(utility_stacked), "\n")
+cat("Unique utilities:", n_distinct(utility_stacked$utility_number), "\n")
+```
+
+```{r}
+library(xgboost)
+library(tidyr)
+library(lhs)
+
+n_cores <- parallel::detectCores()
+
+# Stack years
+utility_stacked <- utility_one %>%
+  select(-x2025_pickups) %>%
+  pivot_longer(
+    cols = c(x2019_pickups, x2020_pickups, x2021_pickups,
+             x2022_pickups, x2023_pickups, x2024_pickups),
+    names_to = "year",
+    values_to = "annual_pickups"
+  ) %>%
+  mutate(year = as.integer(gsub("x|_pickups", "", year))) %>%
+  filter(!is.na(annual_pickups), annual_pickups > 0)
+
+cat("Total rows:", nrow(utility_stacked), "\n")
+cat("Unique utilities:", n_distinct(utility_stacked$utility_number), "\n")
+
+# Prep model data
+model_data <- utility_stacked %>%
+  select(
+    utility_number, annual_pickups, year,
+    residential, commercial, industrial, transportation, total_meters,
+    n_counties, total_pop, total_housing_units,
+    median_age, median_income, median_home_value, median_rent, median_year_built,
+    age_0_17_pct, age_18_24_pct, age_25_34_pct, age_35_44_pct,
+    age_45_54_pct, age_55_64_pct, age_65_plus_pct,
+    white_pct, black_pct, hispanic_pct,
+    owner_occupied_pct, renter_occupied_pct,
+    one_unit_housing_pct, mobile_home_pct, multi_unit_housing_pct,
+    no_internet_pct, less_than_hs_pct, hs_grad_pct, some_college_pct, college_grad_pct,
+    labor_force_pct, unemployed_pct, armed_forces_pct, uninsured_pct,
+    annual_temperature_avg, annual_heating_degree_days, annual_cooling_degree_days,
+    heating_intensity, cooling_intensity, heating_to_cooling_ratio,
+    heating_burden_index, temperature_change_rate, climate_extremity
+  ) %>%
+  drop_na()
+
+cat("Model rows:", nrow(model_data), "\n")
+
+# Split by utility (not random rows)
+set.seed(42)
+utils <- unique(model_data$utility_number)
+train_utils <- sample(utils, floor(0.8 * length(utils)))
+
+train <- model_data %>% filter(utility_number %in% train_utils)
+test <- model_data %>% filter(!utility_number %in% train_utils)
+cat("Train:", nrow(train), "Test:", nrow(test), "\n")
+
+feature_cols <- setdiff(names(model_data), c("utility_number", "annual_pickups"))
+
+train_matrix <- xgb.DMatrix(
+  data = as.matrix(train[, feature_cols]),
+  label = log1p(train$annual_pickups)
+)
+
+test_matrix <- xgb.DMatrix(
+  data = as.matrix(test[, feature_cols]),
+  label = log1p(test$annual_pickups)
+)
+
+# LHS tuning
+cat("\n=== LATIN HYPERCUBE SEARCH ===\n")
+set.seed(123)
+n_samples <- 50
+lhs_raw <- randomLHS(n_samples, 6)
+
+hp_grid <- data.frame(
+  eta              = lhs_raw[,1] * (0.3 - 0.01) + 0.01,
+  max_depth        = floor(lhs_raw[,2] * (10 - 2) + 2),
+  subsample        = lhs_raw[,3] * (1.0 - 0.5) + 0.5,
+  colsample_bytree = lhs_raw[,4] * (1.0 - 0.3) + 0.3,
+  min_child_weight = floor(lhs_raw[,5] * (20 - 1) + 1),
+  gamma            = lhs_raw[,6] * 5
+)
+
+results <- data.frame()
+
+for (i in 1:nrow(hp_grid)) {
+  cat(sprintf("[%d/%d] eta=%.3f depth=%d sub=%.2f col=%.2f mcw=%d gamma=%.2f ... ",
+      i, n_samples,
+      hp_grid$eta[i], hp_grid$max_depth[i], hp_grid$subsample[i],
+      hp_grid$colsample_bytree[i], hp_grid$min_child_weight[i], hp_grid$gamma[i]))
+
+  params <- list(
+    objective = "reg:squarederror",
+    eta = hp_grid$eta[i],
+    max_depth = hp_grid$max_depth[i],
+    subsample = hp_grid$subsample[i],
+    colsample_bytree = hp_grid$colsample_bytree[i],
+    min_child_weight = hp_grid$min_child_weight[i],
+    gamma = hp_grid$gamma[i],
+    nthread = n_cores
+  )
+
+  cv <- xgb.cv(
+    params = params,
+    data = train_matrix,
+    nrounds = 1000,
+    nfold = 5,
+    early_stopping_rounds = 30,
+    verbose = 0
+  )
+
+  best_rmse <- min(cv$evaluation_log$test_rmse_mean)
+  best_round <- cv$best_iteration
+
+  cat(sprintf("best_rmse=%.4f nrounds=%d\n", best_rmse, best_round))
+
+  results <- rbind(results, data.frame(hp_grid[i, ], best_rmse = best_rmse, best_nrounds = best_round))
+}
+
+best <- results[which.min(results$best_rmse), ]
+cat("\n=== BEST HYPERPARAMETERS ===\n")
+print(best)
+
+# Train final
+cat("\n=== TRAINING FINAL MODEL ===\n")
+best_params <- list(
+  objective = "reg:squarederror",
+  eta = best$eta,
+  max_depth = best$max_depth,
+  subsample = best$subsample,
+  colsample_bytree = best$colsample_bytree,
+  min_child_weight = best$min_child_weight,
+  gamma = best$gamma,
+  nthread = n_cores
+)
+
+xgb_model <- xgb.train(
+  params = best_params,
+  data = train_matrix,
+  nrounds = best$best_nrounds,
+  watchlist = list(train = train_matrix, test = test_matrix),
+  print_every_n = 10,
+  verbose = 1
+)
+
+# Evaluate
+cat("\n=== EVALUATION ===\n")
+test$pred_log <- predict(xgb_model, test_matrix)
+test$pred <- expm1(test$pred_log)
+test$actual_log <- log1p(test$annual_pickups)
+
+ss_res <- sum((test$actual_log - test$pred_log)^2)
+ss_tot <- sum((test$actual_log - mean(test$actual_log))^2)
+cat("XGB Log-scale Test R²:", 1 - ss_res / ss_tot, "\n")
+
+rmse <- sqrt(mean((test$annual_pickups - test$pred)^2))
+mae <- mean(abs(test$annual_pickups - test$pred))
+cat("Raw RMSE:", rmse, "\nRaw MAE:", mae, "\n")
+
+# Accuracy buckets
+test %>%
+  mutate(pct_error = abs(annual_pickups - pred) / annual_pickups) %>%
+  summarise(
+    within_25pct = mean(pct_error < 0.25),
+    within_50pct = mean(pct_error < 0.50),
+    within_100pct = mean(pct_error < 1.0),
+    median_pct_error = median(pct_error)
+  )
+
+# Feature importance
+cat("\n=== TOP 20 FEATURES ===\n")
+importance <- xgb.importance(feature_names = feature_cols, model = xgb_model)
+print(importance, n = 20)
+xgb.plot.importance(importance, top_n = 20)
+```
 
