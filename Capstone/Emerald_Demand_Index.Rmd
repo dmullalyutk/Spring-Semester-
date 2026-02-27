@@ -742,19 +742,35 @@ iou_targets %>%
   print(n = 20)
 ```
 
+
+
+```{r}
+county_index %>%
+  select(
+    county, state,
+    demand_index_100, demand_tier,
+    # Sub-components
+    idx_market_size, idx_infra_age, idx_climate_stress,
+    idx_economic_capacity, idx_operational_complexity, idx_growth_potential,
+    # Meters
+    est_total_meters, est_residential_meters, est_commercial_meters,
+    est_industrial_meters, est_transport_meters,
+    # Population & economy
+    total_pop, total_housing_units, median_income, median_year_built,
+    # Utility mix
+    n_utilities, n_iou, n_coop, n_muni
+  ) %>%
+  write_csv("county_demand_index.csv")
+```
+
+
+
+
+
 # ============================================================
 # NOTES & NEXT STEPS
 # ============================================================
 
-**Proportional allocation approach:**
-- Meters allocated to counties based on housing unit share
-- Counties with no utility mapping get index based on ACS/climate only
-- Validation runs at utility level (weighted avg of county scores vs pickups)
-
-**Weight calibration:**
-- Run component correlations above, then adjust W_ constants
-- Components with higher Spearman rho against pickups deserve more weight
-- Re-run composite and check if overall correlation improves
 
 **Data still to add (will improve the index):**
 - [ ] Census Building Permits → better growth_potential component
