@@ -1,0 +1,111 @@
+---
+title: "Untitled"
+author: "Davd"
+date: "2026-02-16"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+
+## Including Plots
+
+You can also embed plots, for example:
+
+
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+
+
+```{r}
+
+
+library(openxlsx)
+
+
+
+df1 <- read_excel("Meters Data 2024.xlsx", sheet = "Emerald Pickups", range = "A1:P50074")
+
+
+library(janitor)
+
+df1 <- clean_names(df1)
+names(df1)
+
+library(dplyr)
+library(tidyr)
+library(lubridate)
+
+library(dplyr)
+
+df1 <- df1 %>%
+  mutate(
+    month_num = match(trimws(date_month), month.name)
+  )
+
+
+df1 <- df1 %>%
+  mutate(
+    quarter_num = as.integer(gsub("Qtr ", "", date_quarter))
+  )
+
+
+```
+
+
+
+```{r}
+
+#reconcile one name per ID 
+
+library(dplyr)
+
+df1 %>%
+  group_by(customer_id) %>%
+  summarise(
+    total_pickups = sum(pickups, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  arrange(desc(total_pickups))
+
+library(dplyr)
+
+name_lookup <- df1 %>%
+  group_by(customer_id, customer_name) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(customer_id) %>%
+  slice_max(n, with_ties = FALSE) %>%
+  select(customer_id, customer_name)
+
+df1_clean <- df1 %>%
+  select(-customer_name) %>%
+  left_join(name_lookup, by = "customer_id")
+
+
+df1_clean %>%
+  group_by(customer_name) %>%
+  summarise(
+    total_pickups = sum(pickups, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  arrange(desc(total_pickups))
+
+
+
+
+
+
+```
+
+```{r}
+
+```
+
+
+
+
